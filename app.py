@@ -29,11 +29,27 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- GOOGLE DRIVE ANBINDUNG & SICHERER ORDNER-ID ABRUF ---
+# --- GOOGLE DRIVE ANBINDUNG & FLEXIBLE SECRETS ---
 @st.cache_resource
 def get_drive_service():
     try:
-        secrets_dict = dict(st.secrets["gcp_service_account"])
+        if "gcp_service_account" in st.secrets:
+            secrets_dict = dict(st.secrets["gcp_service_account"])
+        else:
+            # Fallback: Versuche die Service-Account-Felder direkt auf oberster Ebene zu lesen
+            secrets_dict = {
+                "type": st.secrets.get("type"),
+                "project_id": st.secrets.get("project_id"),
+                "private_key_id": st.secrets.get("private_key_id"),
+                "private_key": st.secrets.get("private_key"),
+                "client_email": st.secrets.get("client_email"),
+                "client_id": st.secrets.get("client_id"),
+                "auth_uri": st.secrets.get("auth_uri"),
+                "token_uri": st.secrets.get("token_uri"),
+                "auth_provider_x509_cert_url": st.secrets.get("auth_provider_x509_cert_url"),
+                "client_x509_cert_url": st.secrets.get("client_x509_cert_url")
+            }
+        
         creds = service_account.Credentials.from_service_account_info(
             secrets_dict, 
             scopes=["https://www.googleapis.com/auth/drive"]
@@ -43,13 +59,12 @@ def get_drive_service():
         st.error(f"Fehler bei der Verbindung zu Google Drive: {e}")
         return None
 
-# Robuste Ermittlung der Ordner-ID (egal ob direkt oder im Service-Account-Block)
+# Ordner-ID robust ermitteln
 if "GDRIVE_FOLDER_ID" in st.secrets:
     DRIVE_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
 elif "gcp_service_account" in st.secrets and "GDRIVE_FOLDER_ID" in st.secrets["gcp_service_account"]:
     DRIVE_FOLDER_ID = st.secrets["gcp_service_account"]["GDRIVE_FOLDER_ID"]
 else:
-    # Fallback, falls der Schlüssel komplett anders heißt
     DRIVE_FOLDER_ID = st.secrets.get("folder_id", "")
 
 def lade_daten_aus_drive():
