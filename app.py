@@ -4,10 +4,32 @@ import io
 import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
 # --- SEITEN-KONFIGURATION ---
 st.set_page_config(page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="centered")
+
+# --- PASSWORT-SCHUTZ ---
+PASSWORT = "gastro2026"
+
+def passwort_pruefen():
+    if "authentifiziert" not in st.session_state:
+        st.session_state.authentifiziert = False
+
+    if not st.session_state.authentifiziert:
+        st.title("🔒 Gastro-Wissensdatenbank - Login")
+        eingabe = st.text_input("Bitte Team-Passwort eingeben:", type="password")
+        if st.button("Anmelden"):
+            if eingabe == PASSWORT:
+                st.session_state.authentifiziert = True
+                st.rerun()
+            else:
+                st.error("Falsches Passwort!")
+        return False
+    return True
+
+if not passwort_pruefen():
+    st.stop()
 
 # --- GOOGLE DRIVE VERBINDUNG EINRICHTEN ---
 def get_drive_service():
@@ -20,7 +42,6 @@ def get_drive_service():
     except Exception as e:
         return None
 
-# Ordner-ID für den Drive-Ordner 'Gastro-Wissen-Daten'
 DRIVE_FOLDER_ID = st.secrets.get("GDRIVE_FOLDER_ID", "1gvcVXerMdevilo5vDDVVFBK8q-wc_uHW")
 
 # --- DATEN LADEN & SPEICHERN ÜBER GOOGLE DRIVE ---
@@ -42,7 +63,7 @@ def lade_daten_aus_drive():
         file_id = files[0]['id']
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
-        downloader = googleapiclient.http.MediaIoBaseDownload(fh, request)
+        downloader = MediaIoBaseDownload(fh, request)
         done = False
         while not done:
             status, done = downloader.next_chunk()
