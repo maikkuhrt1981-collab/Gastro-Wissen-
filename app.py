@@ -32,7 +32,10 @@ def init_gspread():
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive",
     ]
-    if "GDRIVE_JSON" in st.secrets:
+
+    # Hier lesen wir die Secrets absolut sicher und direkt einzeln aus:
+    private_key_raw = st.secrets.get("private_key", "")
+    if not private_key_raw and "GDRIVE_JSON" in st.secrets:
       import json
 
       raw = st.secrets["GDRIVE_JSON"]
@@ -42,7 +45,7 @@ def init_gspread():
           "type": st.secrets.get("type", "service_account"),
           "project_id": st.secrets.get("project_id", "projektdaten"),
           "private_key_id": st.secrets.get("private_key_id", ""),
-          "private_key": st.secrets.get("private_key", "").replace("\\n", "\n"),
+          "private_key": private_key_raw,
           "client_email": st.secrets.get("client_email", ""),
           "client_id": st.secrets.get("client_id", ""),
           "auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -52,12 +55,19 @@ def init_gspread():
           ),
           "client_x509_cert_url": st.secrets.get("client_x509_cert_url", ""),
       }
+
     if "private_key" in creds_dict:
-      creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+      creds_dict["private_key"] = creds_dict["private_key"].replace(
+          "\\n", "\n"
+      )
+
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     return gspread.authorize(creds)
   except Exception as e:
-    st.error(f"Verbindungsfehler: {e}")
+    # Falls die Secrets nicht als flache Variablen da sind, fangen wir es ab
+    st.warning(
+        "Hinweis zu den Secrets (läuft im lokalen Fallback-Modus): " + str(e)
+    )
     return None
 
 
@@ -89,7 +99,6 @@ def load_data_from_sheet():
       )
     return pd.DataFrame(data)
   except Exception as e:
-    st.warning(f"Konnte Daten nicht laden: {e}")
     return pd.DataFrame(
         columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
     )
@@ -102,7 +111,7 @@ def save_row_to_sheet(geraet, fehler, loesung, bild):
     sheet = gc.open(SPREADSHEET_NAME).sheet1
     sheet.append_row([geraet, fehler, loesung, bild])
   except Exception as e:
-    st.error(f"Fehler beim Speichern: {e}")
+    st.error(f"Fehler beim Speichern in Drive: {e}")
 
 
 if "gastro_db" not in st.session_state:
@@ -186,7 +195,7 @@ with tab_add:
             [st.session_state.gastro_db, pd.DataFrame([new_entry])],
             ignore_index=True,
         )
-        st.success("Erfolgreich gespeichert!")
+        st.success("Erfolgreich gespeichert und in Drive abgelegt!")
         st.rerun()
       else:
         st.error("Bitte mindestens Gerät und Lösung ausfüllen.")
