@@ -29,7 +29,7 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- GOOGLE DRIVE ANBINDUNG ---
+# --- GOOGLE DRIVE ANBINDUNG & SICHERER ORDNER-ID ABRUF ---
 @st.cache_resource
 def get_drive_service():
     try:
@@ -43,11 +43,18 @@ def get_drive_service():
         st.error(f"Fehler bei der Verbindung zu Google Drive: {e}")
         return None
 
-DRIVE_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
+# Robuste Ermittlung der Ordner-ID (egal ob direkt oder im Service-Account-Block)
+if "GDRIVE_FOLDER_ID" in st.secrets:
+    DRIVE_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
+elif "gcp_service_account" in st.secrets and "GDRIVE_FOLDER_ID" in st.secrets["gcp_service_account"]:
+    DRIVE_FOLDER_ID = st.secrets["gcp_service_account"]["GDRIVE_FOLDER_ID"]
+else:
+    # Fallback, falls der Schlüssel komplett anders heißt
+    DRIVE_FOLDER_ID = st.secrets.get("folder_id", "")
 
 def lade_daten_aus_drive():
     service = get_drive_service()
-    if not service:
+    if not service or not DRIVE_FOLDER_ID:
         return []
     
     try:
@@ -74,8 +81,8 @@ def lade_daten_aus_drive():
 
 def speichere_daten_in_drive(daten):
     service = get_drive_service()
-    if not service:
-        st.error("Google Drive Service konnte nicht gestartet werden.")
+    if not service or not DRIVE_FOLDER_ID:
+        st.error("Google Drive Service oder Ordner-ID nicht bereit.")
         return False
     
     try:
@@ -99,7 +106,7 @@ def speichere_daten_in_drive(daten):
 
 def bild_hochladen_zu_drive(uploaded_file):
     service = get_drive_service()
-    if not service or not uploaded_file:
+    if not service or not uploaded_file or not DRIVE_FOLDER_ID:
         return None
     
     try:
