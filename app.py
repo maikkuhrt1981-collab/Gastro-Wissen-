@@ -29,15 +29,16 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- GOOGLE DRIVE ANBINDUNG ---
+# --- GOOGLE DRIVE ANBINDUNG (UNIVERSELL) ---
 @st.cache_resource
 def get_drive_service():
     try:
-        if "gcp_service_account" not in st.secrets:
-            st.error("❌ Secret-Fehler: Der Block [gcp_service_account] fehlt in deinen Streamlit-Secrets!")
-            return None
+        # Prüfen, ob der Block da ist – wenn nicht, nehmen wir die Secrets direkt
+        if "gcp_service_account" in st.secrets:
+            secrets_dict = dict(st.secrets["gcp_service_account"])
+        else:
+            secrets_dict = dict(st.secrets)
             
-        secrets_dict = dict(st.secrets["gcp_service_account"])
         creds = service_account.Credentials.from_service_account_info(
             secrets_dict, 
             scopes=["https://www.googleapis.com/auth/drive"]
@@ -47,10 +48,13 @@ def get_drive_service():
         st.error(f"Fehler bei der Verbindung zu Google Drive: {e}")
         return None
 
-# Ordner-ID abrufen
-DRIVE_FOLDER_ID = st.secrets.get("GDRIVE_FOLDER_ID", "")
-if not DRIVE_FOLDER_ID and "gcp_service_account" in st.secrets:
-    DRIVE_FOLDER_ID = st.secrets["gcp_service_account"].get("GDRIVE_FOLDER_ID", "")
+# Ordner-ID flexibel ermitteln
+if "GDRIVE_FOLDER_ID" in st.secrets:
+    DRIVE_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
+elif "gcp_service_account" in st.secrets and "GDRIVE_FOLDER_ID" in st.secrets["gcp_service_account"]:
+    DRIVE_FOLDER_ID = st.secrets["gcp_service_account"]["GDRIVE_FOLDER_ID"]
+else:
+    DRIVE_FOLDER_ID = st.secrets.get("folder_id", "")
 
 def lade_daten_aus_drive():
     service = get_drive_service()
@@ -82,7 +86,7 @@ def lade_daten_aus_drive():
 def speichere_daten_in_drive(daten):
     service = get_drive_service()
     if not service or not DRIVE_FOLDER_ID:
-        st.error("Google Drive Service oder Ordner-ID nicht bereit. Bitte Secrets prüfen.")
+        st.error("Google Drive Service oder Ordner-ID nicht bereit.")
         return False
     
     try:
