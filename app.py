@@ -1,11 +1,6 @@
 import difflib
-import io
-import json
 import pandas as pd
 import streamlit as st
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaIoBaseUpload
 
 # --- SEITENKONFIGURATION ---
 st.set_page_config(
@@ -32,168 +27,47 @@ if not st.session_state.authenticated:
   st.stop()
 
 
-# --- GOOGLE DRIVE VERBINDUNG & DATEN-SYNC ---
-@st.cache_resource
-def init_drive_service():
-  try:
-    # Versuche, die Secrets zu laden (unterstützt verschiedene Formate)
-    if "gdrive" in st.secrets:
-      secret_data = dict(st.secrets["gdrive"])
-    elif "GDRIVE_JSON" in st.secrets:
-      raw_json = st.secrets["GDRIVE_JSON"]
-      secret_data = (
-          json.loads(raw_json) if isinstance(raw_json, str) else dict(raw_json)
-      )
-    else:
-      # Fallback: Flache Secrets direkt auslesen
-      secret_data = {
-          "type": st.secrets.get("type"),
-          "project_id": st.secrets.get("project_id"),
-          "private_key_id": st.secrets.get("private_key_id"),
-          "private_key": st.secrets.get("private_key", "").replace("\\n", "\n"),
-          "client_email": st.secrets.get("client_email"),
-          "client_id": st.secrets.get("client_id"),
-          "auth_uri": st.secrets.get("auth_uri"),
-          "token_uri": st.secrets.get("token_uri"),
-          "auth_provider_x509_cert_url": st.secrets.get(
-              "auth_provider_x509_cert_url"
-          ),
-          "client_x509_cert_url": st.secrets.get("client_x509_cert_url"),
-          "universe_domain": st.secrets.get("universe_domain", "googleapis.com"),
-      }
-
-    if "private_key" in secret_data:
-      secret_data["private_key"] = secret_data["private_key"].replace(
-          "\\n", "\n"
-      )
-
-    folder_id = st.secrets.get("folder_id") or st.secrets.get(
-        "GDRIVE_FOLDER_ID", "1gvcVXerMdevilo5vDDVVFBK8q-wc_uHW"
-    )
-
-    creds = service_account.Credentials.from_service_account_info(
-        secret_data, scopes=["https://www.googleapis.com/auth/drive"]
-    )
-    service = build("drive", "v3", credentials=creds)
-    return service, folder_id
-  except Exception as e:
-    st.error(f"Verbindungsfehler zu Google Drive: {e}")
-    return None, None
-
-
-service, FOLDER_ID = init_drive_service()
-
-FILENAME = "gastro_wissen_daten.csv"
-
-
-def load_data_from_drive():
-  if not service:
-    # Lokaler Fallback, falls Drive nicht erreichbar ist
-    return pd.DataFrame([
-        {
-            "Gerät / Anlage": "Convotherm Combi-Dämpfer",
-            "Fehlercode / Symptom": "E04 - Wassertank läuft leer",
-            "Lösung / Notiz": (
-                "Schwimmerschalter entkalken und auf Freigang prüfen."
-            ),
-        }
-    ])
-
-  try:
-    # Suche nach der CSV-Datei im Drive-Ordner
-    query = f"'{FOLDER_ID}' in parents and name = '{FILENAME}' and trashed = false"
-    results = service.files().list(q=query, fields="files(id, name)").execute()
-    files = results.get("files", [])
-
-    if files:
-      file_id = files[0]["id"]
-      request = service.files().get_media(fileId=file_id)
-      fh = io.BytesIO()
-      downloader = MediaIoBaseDownload(fh, request)
-      done = False
-      while not done:
-        _, done = downloader.next_chunk()
-      fh.seek(0)
-      return pd.read_csv(fh)
-    else:
-      # Datei existiert noch nicht in Drive -> Erstelle Standard-DataFrame und lade hoch
-      df_init = pd.DataFrame([
-          {
-              "Gerät / Anlage": "Convotherm Combi-Dämpfer",
-              "Fehlercode / Symptom": "E04 - Wassertank läuft leer",
-              "Lösung / Notiz": (
-                  "Schwimmerschalter entkalken und auf Freigang prüfen."
-              ),
-          },
-          {
-              "Gerät / Anlage": "Garland Clamshell Grill",
-              "Fehlercode / Symptom": "Temperaturabweichung Oben/Unten",
-              "Lösung / Notiz": (
-                  "Fühlerkalibrierung im Service-Menü durchführen."
-              ),
-          },
-      ])
-      save_data_to_drive(df_init)
-      return df_init
-  except Exception as e:
-    st.warning(
-        f"Konnte Daten nicht aus Drive laden (nutze lokalen Speicher): {e}"
-    )
-    return pd.DataFrame()
-
-
-def save_data_to_drive(df):
-  if not service:
-    return
-  try:
-    csv_bytes = df.to_csv(index=False).encode("utf-8")
-    media_upload = MediaIoBaseUpload(
-        io.BytesIO(csv_bytes), mimetype="text/csv", resumable=True
-    )
-
-    # Prüfen, ob Datei schon existiert
-    query = f"'{FOLDER_ID}' in parents and name = '{FILENAME}' and trashed = false"
-    results = service.files().list(q=query, fields="files(id, name)").execute()
-    files = results.get("files", [])
-
-    if files:
-      # Aktualisieren
-      file_id = files[0]["id"]
-      service.files().update(
-          fileId=file_id, media_body=media_upload
-      ).execute()
-    else:
-      # Neu erstellen
-      file_metadata = {"name": FILENAME, "parents": [FOLDER_ID]}
-      service.files().create(
-          body=file_metadata, media_body=media_upload, fields="id"
-      ).execute()
-  except Exception as e:
-    st.error(f"Fehler beim Speichern in Google Drive: {e}")
-
-
-# Daten beim Start laden
+# --- DATENBANK-INITIALISIERUNG ---
 if "gastro_db" not in st.session_state:
-  st.session_state.gastro_db = load_data_from_drive()
+  st.session_state.gastro_db = pd.DataFrame([
+      {
+          "Gerät / Anlage": "Convotherm Combi-Dämpfer",
+          "Fehlercode / Symptom": "E04 - Wassertank läuft leer",
+          "Lösung / Notiz": (
+              "Schwimmerschalter entkalken und auf Freigang prüfen."
+          ),
+      },
+      {
+          "Gerät / Anlage": "Garland Clamshell Grill",
+          "Fehlercode / Symptom": "Temperaturabweichung Oben/Unten",
+          "Lösung / Notiz": (
+              "Fühlerkalibrierung im Service-Menü durchführen."
+          ),
+      },
+      {
+          "Gerät / Anlage": "Henny Penny Friteuse",
+          "Fehlercode / Symptom": "Heizfehler / Oil Temp Low",
+          "Lösung / Notiz": (
+              "Sicherheitstemperaturbegrenzer (STB) zurücksetzen."
+          ),
+      },
+  ])
 
-# --- HAUPTOBERFLÄCHE ---
+# --- HAUPTFUNKTIONEN ---
 tab_list, tab_add = st.tabs(
     ["📂 Vorhandene Einträge", "➕ Neuen Eintrag hinzufügen"]
 )
 
 with tab_list:
-  st.subheader("Übersicht der Wissensdatenbank (aus Google Drive)")
-
-  if st.button("🔄 Daten aus Drive aktualisieren"):
-    st.session_state.gastro_db = load_data_from_drive()
-    st.rerun()
+  st.subheader("Übersicht der Wissensdatenbank")
 
   search_term = st.text_input(
       "🔍 Suche nach Gerät oder Fehler (mit Rechtschreibtoleranz):", ""
   )
+
   df = st.session_state.gastro_db
 
-  if search_term and not df.empty:
+  if search_term:
     search_lower = search_term.lower()
 
 
@@ -217,14 +91,14 @@ with tab_list:
   st.dataframe(filtered_df, use_container_width=True)
 
 with tab_add:
-  st.subheader("Neuen Eintrag erfassen & in Google Drive speichern")
+  st.subheader("Neuen Eintrag erfassen")
 
   with st.form("add_form"):
     geraet = st.text_input("Gerät / Anlage (z.B. Carpigiani, Taylor, Convotherm):")
     fehler = st.text_input("Fehlercode / Symptom:")
     loesung = st.text_area("Lösung / Reparatur-Notiz:")
 
-    submitted = st.form_submit_button("Eintrag speichern & hochladen")
+    submitted = st.form_submit_button("Eintrag speichern")
 
     if submitted:
       if geraet and loesung:
@@ -237,12 +111,7 @@ with tab_add:
             [st.session_state.gastro_db, pd.DataFrame([new_entry])],
             ignore_index=True,
         )
-        # Direkt in Google Drive sichern
-        save_data_to_drive(st.session_state.gastro_db)
-        st.success(
-            f"Eintrag für '{geraet}' erfolgreich hinzugefügt und in Drive"
-            " gespeichert!"
-        )
+        st.success(f"Eintrag für '{geraet}' erfolgreich hinzugefügt!")
         st.rerun()
       else:
         st.error(
