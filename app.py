@@ -1,9 +1,7 @@
 import difflib
 import os
-import gspread
 import pandas as pd
 import streamlit as st
-from google.oauth2.service_account import Credentials
 
 st.set_page_config(
     page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="wide"
@@ -24,42 +22,8 @@ if not st.session_state.authenticated:
       st.error("Falsches Passwort!")
   st.stop()
 
-
-@st.cache_resource
-def init_gspread():
-  try:
-    scope = [
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    private_key_raw = st.secrets.get("private_key", "")
-    creds_dict = {
-        "type": st.secrets.get("type", "service_account"),
-        "project_id": st.secrets.get("project_id", "projektdaten"),
-        "private_key_id": st.secrets.get("private_key_id", ""),
-        "private_key": private_key_raw.replace("\\n", "\n"),
-        "client_email": st.secrets.get("client_email", ""),
-        "client_id": st.secrets.get("client_id", ""),
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": (
-            "https://www.googleapis.com/oauth2/v1/certs"
-        ),
-        "client_x509_cert_url": st.secrets.get("client_x509_cert_url", ""),
-    }
-    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-    return gspread.authorize(creds)
-  except Exception:
-    return None
-
-
-gc = init_gspread()
-SPREADSHEET_NAME = "gastro_wissen_daten"
-
-
-# --- DATENBANK INITIALISIEREN (MIT SICHEREM FALLBACK) ---
+# --- DATENBANK INITIALISIEREN ---
 if "gastro_db" not in st.session_state:
-  # Start-Daten, damit beim Neuladen nie alles leer ist
   st.session_state.gastro_db = pd.DataFrame([
       {
           "Gerät / Anlage": "Carpigiani Softeismaschine",
@@ -78,7 +42,18 @@ if not os.path.exists(UPLOAD_DIR):
 tab_list, tab_add = st.tabs(["📂 Vorhandene Einträge", "➕ Neuen Eintrag mit Bild"])
 
 with tab_list:
-  st.subheader("Wissensdatenbank (Sicherer Modus)")
+  st.subheader("Wissensdatenbank & Drive-Backup")
+
+  # --- HIER IST DER EXPORT-BUTTON ---
+  if not st.session_state.gastro_db.empty:
+    csv_data = st.session_state.gastro_db.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label="💾 Alle Einträge als CSV für Google Drive herunterladen",
+        data=csv_data,
+        file_name="gastro_wissen_backup.csv",
+        mime="text/csv",
+    )
+    st.markdown("---")
 
   search_term = st.text_input("🔍 Suche:", "")
   df = st.session_state.gastro_db
@@ -139,7 +114,6 @@ with tab_add:
             "Lösung / Notiz": loesung,
             "Bild": image_path,
         }
-        # Fügt den neuen Eintrag sicher hinzu, ohne bestehende Daten zu löschen
         st.session_state.gastro_db = pd.concat(
             [st.session_state.gastro_db, pd.DataFrame([new_entry])],
             ignore_index=True,
