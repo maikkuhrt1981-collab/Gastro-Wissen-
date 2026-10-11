@@ -1,15 +1,12 @@
 import io
-import json
 import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseDownload, MediaFileUpload
+from googleapiclient.http import MediaIoBaseUpload
 
 # --- SEITENKONFIGURATION ---
 st.set_page_config(
-    page_title="Gastro-Wissensdatenbank",
-    page_icon="🔧",
-    layout="wide"
+    page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="wide"
 )
 
 st.title("🔧 Gastro-Wissensdatenbank")
@@ -19,36 +16,24 @@ st.title("🔧 Gastro-Wissensdatenbank")
 @st.cache_resource
 def init_drive_service():
   try:
-    # Versuche, die Secrets zu laden
-    if "gdrive" in st.secrets:
-      secret_data = dict(st.secrets["gdrive"])
-    elif "GDRIVE_JSON" in st.secrets:
-      # Falls es als JSON-String hinterlegt ist
-      raw_json = st.secrets["GDRIVE_JSON"]
-      if isinstance(raw_json, str):
-        secret_data = json.loads(raw_json)
-      else:
-        secret_data = dict(raw_json)
-    else:
-      st.error(
-          "Keine 'gdrive' oder 'GDRIVE_JSON' Sektion in den Streamlit-Secrets"
-          " gefunden!"
-      )
-      return None, None
+    # Direktes Auslesen der flachen TOML-Secrets
+    secret_data = {
+        "type": st.secrets["type"],
+        "project_id": st.secrets["project_id"],
+        "private_key_id": st.secrets["private_key_id"],
+        # Hier werden echte Zeilenumbrüche für das PEM-Format wiederhergestellt
+        "private_key": st.secrets["private_key"].replace("\\n", "\n"),
+        "client_email": st.secrets["client_email"],
+        "client_id": st.secrets["client_id"],
+        "auth_uri": st.secrets["auth_uri"],
+        "token_uri": st.secrets["token_uri"],
+        "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
+        "client_x509_cert_url": st.secrets["client_x509_cert_url"],
+        "universe_domain": st.secrets["universe_domain"],
+    }
 
-    # Privaten Schlüssel bereinigen und Zeilenumbrüche korrigieren
-    if "private_key" in secret_data:
-      pk = secret_data["private_key"]
-      # Ersetzt wörtliche \n-Sequenzen durch echte Zeilenumbrüche
-      pk = pk.replace("\\n", "\n")
-      secret_data["private_key"] = pk
+    folder_id = st.secrets["folder_id"]
 
-    # Ordner-ID aus Secrets oder Fallback laden
-    folder_id = st.secrets.get("folder_id") or st.secrets.get(
-        "GDRIVE_FOLDER_ID", "1gvcVXerMdevilo5vDDVVFBK8q-wc_uHW"
-    )
-
-    # Google Credentials erstellen
     creds = service_account.Credentials.from_service_account_info(
         secret_data, scopes=["https://www.googleapis.com/auth/drive"]
     )
@@ -90,7 +75,6 @@ def get_files_in_folder(current_folder_id):
 # --- HAUPTOBERFLÄCHE DER APP ---
 st.success("Erfolgreich mit Google Drive verbunden!")
 
-# Tabs für Navigation
 tab_list, tab_upload = st.tabs(
     ["📂 Vorhandene Dokumente & Geräte", "📤 Neues Dokument hochladen"]
 )
@@ -112,7 +96,7 @@ with tab_list:
     for file in files:
       file_name = file.get("name")
       file_id = file.get("id")
-      mime_type = file.get("mimeType")
+      mime_type = file.get("mimeType", "")
 
       col1, col2, col3 = st.columns([3, 2, 1])
       with col1:
@@ -120,11 +104,8 @@ with tab_list:
       with col2:
         st.caption(f"Typ: {mime_type.split('.')[-1]}")
       with col3:
-        if st.button("Öffnen / Ansehen", key=file_id):
-          st.info(
-              f"Datei-ID: {file_id} (Direkter Download/Ansicht kann hier"
-              " erweitert werden)"
-          )
+        if st.button("Ansehen", key=file_id):
+          st.info(f"Datei ausgewählt.")
 
 with tab_upload:
   st.subheader("Neues Dokument oder Handbuch hinzufügen")
@@ -138,15 +119,6 @@ with tab_upload:
     if st.button("In Google Drive hochladen"):
       file_metadata = {"name": uploaded_file.name, "parents": [FOLDER_ID]}
 
-      media = MediaIoBaseDownload(
-          io.BytesIO(uploaded_file.getvalue()),
-          mimetype=uploaded_file.type,
-          chunksize=1024 * 1024,
-      )
-      # Alternativ MediaFileUpload nutzen:
-      # Wir speichern die Bytes temporär oder nutzen MediaIoBaseUpload:
-      from googleapiclient.http import MediaIoBaseUpload
-
       media_upload = MediaIoBaseUpload(
           io.BytesIO(uploaded_file.getvalue()),
           mimetype=uploaded_file.type,
@@ -154,11 +126,9 @@ with tab_upload:
       )
 
       try:
-        file = (
-            service.files()
-            .create(body=file_metadata, media_body=media_upload, fields="id")
-            .execute()
-        )
+        service.files().create(
+            body=file_metadata, media_body=media_upload, fields="id"
+        ).execute()
         st.success(f"Datei '{uploaded_file.name}' erfolgreich hochgeladen!")
         st.rerun()
       except Exception as e:
