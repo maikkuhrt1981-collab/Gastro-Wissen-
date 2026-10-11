@@ -29,15 +29,26 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- GOOGLE DRIVE ANBINDUNG (UNIVERSELL) ---
+# --- GOOGLE DRIVE ANBINDUNG (ULTRA-FLEXIBEL) ---
 @st.cache_resource
 def get_drive_service():
     try:
-        # Prüfen, ob der Block existiert, ansonsten direkt aus st.secrets lesen
+        # Prüfen, ob der Block existiert, ansonsten die Top-Level-Secrets nutzen
         if "gcp_service_account" in st.secrets:
             secrets_dict = dict(st.secrets["gcp_service_account"])
         else:
-            secrets_dict = dict(st.secrets)
+            secrets_dict = {
+                "type": st.secrets.get("type", "service_account"),
+                "project_id": st.secrets.get("project_id"),
+                "private_key_id": st.secrets.get("private_key_id"),
+                "private_key": st.secrets.get("private_key"),
+                "client_email": st.secrets.get("client_email"),
+                "client_id": st.secrets.get("client_id"),
+                "auth_uri": st.secrets.get("auth_uri", "https://accounts.google.com/o/oauth2/auth"),
+                "token_uri": st.secrets.get("token_uri", "https://oauth2.googleapis.com/token"),
+                "auth_provider_x509_cert_url": st.secrets.get("auth_provider_x509_cert_url", "https://www.googleapis.com/oauth2/v1/certs"),
+                "client_x509_cert_url": st.secrets.get("client_x509_cert_url")
+            }
         
         creds = service_account.Credentials.from_service_account_info(
             secrets_dict, 
