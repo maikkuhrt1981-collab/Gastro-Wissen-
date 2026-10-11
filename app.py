@@ -1,71 +1,127 @@
 import difflib
 import os
+import gspread
 import pandas as pd
-import streamlit as str_lit
 import streamlit as st
+from google.oauth2.service_account import Credentials
 
-# --- SEITENKONFIGURATION ---
 st.set_page_config(
     page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="wide"
 )
+st.title("🔧 Gastro-Wissensdatenbank (Google Drive Sync)")
 
-st.title("🔧 Gastro-Wissensdatenbank (Google Drive / Sheets Anbindung)")
-
-
-# --- PASSWORTSCHUTZ ---
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
   st.subheader("🔒 Bitte Passwort eingeben")
   password_input = st.text_input("Passwort:", type="password")
-
   if st.button("Anmelden"):
     if password_input == "Gastro2026":
       st.session_state.authenticated = True
       st.rerun()
     else:
-      st.error("Falsches Passwort! Bitte versuche es noch einmal.")
+      st.error("Falsches Passwort!")
   st.stop()
 
 
-# --- LOKALER BILDSPEICHER & DATEN-INIT ---
+@st.cache_resource
+def init_gspread():
+  try:
+    scope = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
+    if "GDRIVE_JSON" in st.secrets:
+      import json
+
+      raw = st.secrets["GDRIVE_JSON"]
+      creds_dict = json.loads(raw) if isinstance(raw, str) else dict(raw)
+    else:
+      creds_dict = {
+          "type": st.secrets.get("type", "service_account"),
+          "project_id": st.secrets.get("project_id", "projektdaten"),
+          "private_key_id": st.secrets.get("private_key_id", ""),
+          "private_key": st.secrets.get("private_key", "").replace("\\n", "\n"),
+          "client_email": st.secrets.get("client_email", ""),
+          "client_id": st.secrets.get("client_id", ""),
+          "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+          "token_uri": "https://oauth2.googleapis.com/token",
+          "auth_provider_x509_cert_url": (
+              "https://www.googleapis.com/oauth2/v1/certs"
+          ),
+          "client_x509_cert_url": st.secrets.get("client_x509_cert_url", ""),
+      }
+    if "private_key" in creds_dict:
+      creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+    return gspread.authorize(creds)
+  except Exception as e:
+    st.error(f"Verbindungsfehler: {e}")
+    return None
+
+
+gc = init_gspread()
+SPREADSHEET_NAME = "gastro_wissen_daten"
+
+
+def load_data_from_sheet():
+  if not gc:
+    return pd.DataFrame(
+        columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
+    )
+  try:
+    try:
+      sheet = gc.open(SPREADSHEET_NAME).sheet1
+    except gspread.SpreadsheetNotFound:
+      spreadsheet = gc.create(SPREADSHEET_NAME)
+      sheet = spreadsheet.sheet1
+      sheet.append_row([
+          "Gerät / Anlage",
+          "Fehlercode / Symptom",
+          "Lösung / Notiz",
+          "Bild",
+      ])
+    data = sheet.get_all_records()
+    if not data:
+      return pd.DataFrame(
+          columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
+      )
+    return pd.DataFrame(data)
+  except Exception as e:
+    st.warning(f"Konnte Daten nicht laden: {e}")
+    return pd.DataFrame(
+        columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
+    )
+
+
+def save_row_to_sheet(geraet, fehler, loesung, bild):
+  if not gc:
+    return
+  try:
+    sheet = gc.open(SPREADSHEET_NAME).sheet1
+    sheet.append_row([geraet, fehler, loesung, bild])
+  except Exception as e:
+    st.error(f"Fehler beim Speichern: {e}")
+
+
+if "gastro_db" not in st.session_state:
+  st.session_state.gastro_db = load_data_from_sheet()
+
 UPLOAD_DIR = "uploaded_images"
 if not os.path.exists(UPLOAD_DIR):
   os.makedirs(UPLOAD_DIR)
 
-# Fallback-Datenbank, falls Verbindung aufgebaut wird
-if "gastro_db" not in st.session_state:
-  st.session_state.gastro_db = pd.DataFrame([
-      {
-          "Gerät / Anlage": "Carpigiani Softeismaschine",
-          "Fehlercode / Symptom": "E01 - Überdruck im Zylinder",
-          "Lösung / Notiz": (
-              "Kondensator auf Verschmutzung prüfen, Kühlung kontrollieren."
-          ),
-          "Bild": "",
-      },
-      {
-          "Gerät / Anlage": "Convotherm Combi-Dämpfer",
-          "Fehlercode / Symptom": "E04 - Wassertank läuft leer",
-          "Lösung / Notiz": (
-              "Schwimmerschalter entkalken und auf Freigang prüfen."
-          ),
-          "Bild": "",
-      },
-  ])
-
-# --- HAUPTOBERFLÄCHE ---
-tab_list, tab_add = st.tabs(
-    ["📂 Vorhandene Einträge", "➕ Neuen Eintrag mit Bild hinzufügen"]
-)
+tab_list, tab_add = st.tabs(["📂 Vorhandene Einträge", "➕ Neuen Eintrag mit Bild"])
 
 with tab_list:
-  st.subheader("Übersicht der Wissensdatenbank")
+  st.subheader("Wissensdatenbank (Google Drive)")
+  if st.button("🔄 Aktualisieren"):
+    st.session_state.gastro_db = load_data_from_sheet()
+    st.success("Aktualisiert!")
+    st.rerun()
 
-  search_term = st.text_input(
-      "🔍 Suche nach Gerät oder Fehler (mit Rechtschreibtoleranz):", ""
-  )
+  search_term = st.text_input("🔍 Suche:", "")
   df = st.session_state.gastro_db
 
   if search_term and not df.empty:
@@ -91,31 +147,24 @@ with tab_list:
 
   for index, row in filtered_df.iterrows():
     with st.expander(
-        f"🛠️ {row['Gerät / Anlage']} — {row['Fehlercode / Symptom']}"
+        f"🛠️ {row.get('Gerät / Anlage', '')} —"
+        f" {row.get('Fehlercode / Symptom', '')}"
     ):
-      st.write(f"**Lösung / Notiz:** {row['Lösung / Notiz']}")
-      if (
-          pd.notna(row["Bild"])
-          and row["Bild"] != ""
-          and os.path.exists(str(row["Bild"]))
-      ):
-        st.image(
-            row["Bild"], caption="Zugehöriges Foto", use_container_width=True
-        )
+      st.write(f"**Lösung:** {row.get('Lösung / Notiz', '')}")
+      img_path = row.get("Bild", "")
+      if img_path and os.path.exists(str(img_path)):
+        st.image(img_path, caption="Foto", use_container_width=True)
 
 with tab_add:
-  st.subheader("Neuen Eintrag mit Foto erfassen")
-
+  st.subheader("Neuen Eintrag erfassen")
   with st.form("add_form"):
-    geraet = st.text_input("Gerät / Anlage (z.B. Carpigiani, Taylor, Convotherm):")
+    geraet = st.text_input("Gerät / Anlage:")
     fehler = st.text_input("Fehlercode / Symptom:")
-    loesung = st.text_area("Lösung / Reparatur-Notiz:")
+    loesung = st.text_area("Lösung / Notiz:")
     uploaded_file = st.file_uploader(
-        "📷 Foto hochladen (z.B. Display oder Bauteil):",
-        type=["jpg", "jpeg", "png"],
+        "📷 Foto hochladen:", type=["jpg", "jpeg", "png"]
     )
-
-    submitted = st.form_submit_button("Eintrag speichern")
+    submitted = st.form_submit_button("Speichern")
 
     if submitted:
       if geraet and loesung:
@@ -124,6 +173,8 @@ with tab_add:
           image_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
           with open(image_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
+
+        save_row_to_sheet(geraet, fehler, loesung, image_path)
 
         new_entry = {
             "Gerät / Anlage": geraet,
@@ -135,12 +186,7 @@ with tab_add:
             [st.session_state.gastro_db, pd.DataFrame([new_entry])],
             ignore_index=True,
         )
-        st.success(
-            f"Eintrag für '{geraet}' erfolgreich hinzugefügt und lokal gespeichert!"
-        )
+        st.success("Erfolgreich gespeichert!")
         st.rerun()
       else:
-        st.error(
-            "Bitte fülle mindestens die Felder 'Gerät / Anlage' und 'Lösung /"
-            " Notiz' aus."
-        )
+        st.error("Bitte mindestens Gerät und Lösung ausfüllen.")
