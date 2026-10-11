@@ -1,54 +1,54 @@
-
+import streamlit as st
 import json
 import io
-import streamlit as st
+import datetime
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 
-# --- SEITEN-KONFIGURATION ---
+# --- SEITENKONFIGURATION ---
 st.set_page_config(page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="centered")
 
-# --- PASSWORT-SCHUTZ ---
-PASSWORT = "gastro2026"
+# --- PASSWORT-AUTHENTIFIZIERUNG ---
+def check_password():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
 
-def passwort_pruefen():
-    if "authentifiziert" not in st.session_state:
-        st.session_state.authentifiziert = False
-
-    if not st.session_state.authentifiziert:
-        st.title("🔒 Gastro-Wissensdatenbank - Login")
-        eingabe = st.text_input("Bitte Team-Passwort eingeben:", type="password")
+    if not st.session_state.authenticated:
+        st.subheader("🔒 Bitte anmelden")
+        pwd = st.text_input("Passwort", type="password")
         if st.button("Anmelden"):
-            if eingabe == PASSWORT:
-                st.session_state.authentifiziert = True
+            if pwd == "gastro2026":
+                st.session_state.authenticated = True
                 st.rerun()
             else:
                 st.error("Falsches Passwort!")
         return False
     return True
 
-if not passwort_pruefen():
+if not check_password():
     st.stop()
 
-# --- GOOGLE DRIVE VERBINDUNG EINRICHTEN ---
+# --- GOOGLE DRIVE ANBINDUNG ---
+@st.cache_resource
 def get_drive_service():
     try:
-        creds_dict = dict(st.secrets["gcp_service_account"])
+        secrets_dict = dict(st.secrets["gcp_service_account"])
         creds = service_account.Credentials.from_service_account_info(
-            creds_dict, scopes=['https://www.googleapis.com/auth/drive']
+            secrets_dict, 
+            scopes=["https://www.googleapis.com/auth/drive"]
         )
         return build('drive', 'v3', credentials=creds)
     except Exception as e:
+        st.error(f"Fehler bei der Verbindung zu Google Drive: {e}")
         return None
 
-DRIVE_FOLDER_ID = st.secrets.get("GDRIVE_FOLDER_ID", "1gvcVXerMdevilo5vDDVVFBK8q-wc_uHW")
+DRIVE_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
 
-# --- DATEN LADEN & SPEICHERN ÜBER GOOGLE DRIVE ---
 def lade_daten_aus_drive():
     service = get_drive_service()
     if not service:
-        return standard_daten()
+        return []
     
     try:
         query = f"'{DRIVE_FOLDER_ID}' in parents and name = 'datenbank.json' and trashed = false"
@@ -56,10 +56,10 @@ def lade_daten_aus_drive():
         files = results.get('files', [])
         
         if not files:
-            initial_data = standard_daten()
-            speichere_daten_in_drive(initial_data)
-            return initial_data
-        
+            # Wenn die Datei noch nicht existiert, legen wir eine leere Liste an
+            speichere_daten_in_drive([])
+            return []
+            
         file_id = files[0]['id']
         request = service.files().get_media(fileId=file_id)
         fh = io.BytesIO()
@@ -67,16 +67,17 @@ def lade_daten_aus_drive():
         done = False
         while not done:
             status, done = downloader.next_chunk()
-        
         fh.seek(0)
         return json.loads(fh.read().decode('utf-8'))
     except Exception as e:
-        return standard_daten()
+        st.error(f"Fehler beim Laden aus Drive: {e}")
+        return []
 
 def speichere_daten_in_drive(daten):
     service = get_drive_service()
     if not service:
-        return
+        st.error("Google Drive Service konnte nicht gestartet werden.")
+        return False
     
     try:
         json_str = json.dumps(daten, ensure_ascii=False, indent=4)
@@ -92,8 +93,10 @@ def speichere_daten_in_drive(daten):
         else:
             file_metadata = {'name': 'datenbank.json', 'parents': [DRIVE_FOLDER_ID]}
             service.files().create(body=file_metadata, media_body=media, fields='id').execute()
+        return True
     except Exception as e:
         st.error(f"Fehler beim Speichern in Drive: {e}")
+        return False
 
 def bild_hochladen_zu_drive(uploaded_file):
     service = get_drive_service()
@@ -118,93 +121,86 @@ def bild_hochladen_zu_drive(uploaded_file):
             
         return file.get('webViewLink')
     except Exception as e:
+        st.error(f"Fehler beim Bildupload: {e}")
         return None
 
-# --- STANDARDDATEN ---
-def standard_daten():
-    return [
-        {
-            "geraet": "Frymaster / Frittieranlagen",
-            "fehler": "Alarm 6 / High Temp / Übertemperatur",
-            "reparatur": "Übertemperatur im Becken überschritten. Thermostat prüfen, Fühler auf Kabelbruch und Widerstand prüfen, Schütz prüfen.",
-            "bild_url": ""
-        },
-        {
-            "geraet": "Garland Grill",
-            "fehler": "Alarm 6",
-            "reparatur": "Sensorstecker sitzt lose oder Kabelbeschädigung am Plattenfühler. Stecker prüfen und ggf. nachdrücken.",
-            "bild_url": ""
-        },
-        {
-            "geraet": "Carpigiani Speiseeisbereiter",
-            "fehler": "E20 / Rührwerk Überlast",
-            "reparatur": "Mixer-Welle blockiert oder Mix-Konsistenz zu fest eingestellt. Chargengröße prüfen, Getriebe und Messer auf Verschleiß kontrollieren.",
-            "bild_url": ""
-        }
-    ]
+# --- HAUPTAPP ---
+st.title("🔧 Gastro-Wissensdatenbank")
 
-# Daten laden
 datenbank = lade_daten_aus_drive()
 
-# --- SEITENLEISTE (NAVIGATION) ---
-st.sidebar.title("Navigation")
-auswahl = st.sidebar.radio("Menü", ["🔍 Fehler suchen", "➕ Neuen Eintrag hinzufügen"])
+menu = st.sidebar.selectbox("Menü", ["Datenbank durchsuchen", "Neuen Eintrag hinzufügen", "🛠️ Diagnose"])
 
-# --- ANSICHT 1: FEHLER SUCHEN ---
-if auswahl == "🔍 Fehler suchen":
-    st.title("Datenbank durchsuchen")
-    suchbegriff = st.text_input("Wonach suchen? (z.B. Alarm 6, E20, Carpigiani):", "")
+if menu == "Datenbank durchsuchen":
+    st.subheader("Datenbank durchsuchen")
+    suchbegriff = st.text_input("Wonach suchen? (z.B. Garland, E1, Combi)").strip().lower()
     
     if suchbegriff:
-        ergebnisse = [
-            e for e in datenbank 
-            if suchbegriff.lower() in e["geraet"].lower() 
-            or suchbegriff.lower() in e["fehler"].lower() 
-            or suchbegriff.lower() in e["reparatur"].lower()
+        treffer = [
+            eintrag for eintrag in datenbank 
+            if suchbegriff in eintrag.get("geraet", "").lower() 
+            or suchbegriff in eintrag.get("fehler", "").lower() 
+            or suchbegriff in eintrag.get("anleitung", "").lower()
         ]
         
-        if ergebnisse:
-            for item in ergebnisse:
-                st.success("Gefundener Eintrag:")
-                st.markdown(f"## Gerät: {item['geraet']}")
-                st.markdown(f"- **Fehler:** {item['fehler']}")
-                st.markdown(f"- **Reparatur:** {item['reparatur']}")
-                
-                if item.get('bild_url'):
-                    st.markdown(f"- **Schaltplan / Foto:** [Datei in Google Drive öffnen]({item['bild_url']})")
-                st.markdown("---")
+        if treffer:
+            st.success(f"{len(treffer)} Eintrag/Einträge gefunden:")
+            for t in treffer:
+                with st.expander(f"Gerät: {t.get('geraet')} | Fehler: {t.get('fehler')}"):
+                    st.write(f"**Reparaturanleitung:**\n{t.get('anleitung')}")
+                    if t.get('bild_link'):
+                        st.image(t['bild_link'], caption="Schaltplan / Foto", use_container_width=True)
         else:
             st.warning("Keine passenden Einträge gefunden.")
 
-# --- ANSICHT 2: NEUEN EINTRAG HINZUFÜGEN ---
-elif auswahl == "➕ Neuen Eintrag hinzufügen":
-    st.title("Neuen Eintrag hinzufügen")
+elif menu == "Neuen Eintrag hinzufügen":
+    st.subheader("Neuen Eintrag erfassen")
     
-    with st.form("neuer_eintrag_form"):
-        neues_geraet = st.text_input("Gerät / Hersteller:")
-        neuer_fehler = st.text_input("Fehler / Fehlercode:")
-        neue_reparatur = st.text_area("Reparaturanleitung:")
-        hochgeladene_datei = st.file_uploader("Schaltplan / Foto hochladen (optional):", type=["png", "jpg", "jpeg", "pdf"])
+    with st.form("eintrag_form"):
+        geraet = st.text_input("Gerät / Hersteller:")
+        fehler = st.text_input("Fehler / Fehlercode:")
+        anleitung = st.text_area("Reparaturanleitung:")
+        uploaded_file = st.file_uploader("Schaltplan / Foto hochladen (optional):", type=["png", "jpg", "jpeg", "pdf"])
         
-        submit_button = st.form_submit_button(label="Speichern")
+        submitted = st.form_submit_button("Speichern")
         
-        if submit_button:
-            if neues_geraet and neuer_fehler and neue_reparatur:
-                bild_link = ""
-                if hochgeladene_datei is not None:
-                    with st.spinner("Lade Datei in Google Drive hoch..."):
-                        bild_link = bild_hochladen_zu_drive(hochgeladene_datei)
+        if submitted:
+            if not geraet or not fehler:
+                st.error("Bitte Gerät und Fehler ausfüllen!")
+            else:
+                bild_link = None
+                if uploaded_file is not None:
+                    with st.spinner("Lade Bild hoch..."):
+                        bild_link = bild_hochladen_zu_drive(uploaded_file)
                 
                 neuer_eintrag = {
-                    "geraet": neues_geraet,
-                    "fehler": neuer_fehler,
-                    "reparatur": neue_reparatur,
-                    "bild_url": bild_link if bild_link else ""
+                    "geraet": geraet,
+                    "fehler": fehler,
+                    "anleitung": anleitung,
+                    "bild_link": bild_link,
+                    "datum": str(datetime.date.today())
                 }
                 
                 datenbank.append(neuer_eintrag)
-                speichere_daten_in_drive(datenbank)
-                
-                st.success("Erfolgreich hinzugefügt!")
-            else:
-                st.error("Bitte alle Pflichtfelder (Gerät, Fehler, Reparatur) ausfüllen.")
+                if speichere_daten_in_drive(datenbank):
+                    st.success("Erfolgreich hinzugefügt und in Google Drive gespeichert!")
+                else:
+                    st.error("Fehler beim Speichern in der Datenbank.")
+
+elif menu == "🛠️ Diagnose":
+    st.subheader("Google Drive & Datenbank Status")
+    if st.button("Verbindung & Datei prüfen"):
+        service = get_drive_service()
+        if service:
+            try:
+                query = f"'{DRIVE_FOLDER_ID}' in parents and name = 'datenbank.json' and trashed = false"
+                results = service.files().list(q=query, spaces='drive', fields='files(id, name, size)').execute()
+                files = results.get('files', [])
+                if files:
+                    st.success(f"Gefunden! datenbank.json existiert im Ordner.")
+                    st.write(f"Aktuelle Einträge in der Liste: {len(datenbank)}")
+                    st.json(datenbank)
+                else:
+                    st.warning("Die Datei 'datenbank.json' existiert noch nicht im Ordner. Sie wird beim nächsten Speichern automatisch erstellt.")
+            except Exception as e:
+                st.error(f"Fehler bei der Diagnose: {e}")
