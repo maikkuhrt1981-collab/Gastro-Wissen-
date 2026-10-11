@@ -8,9 +8,28 @@ st.set_page_config(
 
 st.title("🔧 Gastro-Wissensdatenbank")
 
-# Initialisierung von Session State für die Daten, damit alles direkt im Speicher bleibt
-if "waffen_db" not in st.session_state:
-  st.session_state.waffen_db = pd.DataFrame([
+# --- PASSWORTSCHUTZ ---
+# Initialisierung des Login-Status im Session State
+if "authenticated" not in st.session_state:
+  st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+  st.subheader("🔒 Bitte Passwort eingeben")
+  password_input = st.text_input("Passwort:", type="password")
+
+  if st.button("Anmelden"):
+    if password_input == "Gastro2026":
+      st.session_state.authenticated = True
+      st.rerun()
+    else:
+      st.error("Falsches Passwort! Bitte versuche es noch einmal.")
+  # Stoppt die Ausführung der App, solange das Passwort nicht korrekt ist
+  st.stop()
+
+
+# --- DATENBANK-INITIALISIERUNG ---
+if "gastro_db" not in st.session_state:
+  st.session_state.gastro_db = pd.DataFrame([
       {
           "Gerät / Anlage": "Convotherm Combi-Dämpfer",
           "Fehlercode / Symptom": "E04 - Wassertank läuft leer",
@@ -34,7 +53,7 @@ if "waffen_db" not in st.session_state:
       },
   ])
 
-# Tabs für die Bedienung
+# --- HAUPTFUNKTIONEN (NACH ERFOLGREICHEM LOGIN) ---
 tab_list, tab_add = st.tabs(
     ["📂 Vorhandene Einträge", "➕ Neuen Eintrag hinzufügen"]
 )
@@ -42,14 +61,14 @@ tab_list, tab_add = st.tabs(
 with tab_list:
   st.subheader("Übersicht der Wissensdatenbank")
 
+  # Die Suchzeile
   search_term = st.text_input(
       "🔍 Suche nach Gerät oder Fehler:", ""
   )
 
-  df = st.session_state.waffen_db
+  df = st.session_state.gastro_db
 
   if search_term:
-    # Filterung über alle Spalten
     mask = (
         df.astype(str)
         .apply(lambda col: col.str.contains(search_term, case=False))
@@ -78,9 +97,8 @@ with tab_add:
             "Fehlercode / Symptom": fehler,
             "Lösung / Notiz": loesung,
         }
-        # Neuen Eintrag anfügen
-        st.session_state.waffen_db = pd.concat(
-            [st.session_state.waffen_db, pd.DataFrame([new_entry])],
+        st.session_state.gastro_db = pd.concat(
+            [st.session_state.gastro_db, pd.DataFrame([new_entry])],
             ignore_index=True,
         )
         st.success(f"Eintrag für '{geraet}' erfolgreich hinzugefügt!")
