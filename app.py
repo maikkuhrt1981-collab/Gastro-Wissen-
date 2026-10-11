@@ -1,9 +1,5 @@
-import io
-import json
+import pandas as pd
 import streamlit as st
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
 
 # --- SEITENKONFIGURATION ---
 st.set_page_config(
@@ -12,122 +8,85 @@ st.set_page_config(
 
 st.title("🔧 Gastro-Wissensdatenbank")
 
+# Initialisierung von Session State für die Daten, damit alles direkt im Speicher bleibt
+if "waffen_db" not in st.session_state:
+  st.session_state.waffen_db = pd.DataFrame([
+      {
+          "Gerät / Anlage": "Convotherm Combi-Dämpfer",
+          "Fehlercode / Symptom": "E04 - Wassertank läuft leer",
+          "Lösung / Notiz": (
+              "Schwimmerschalter entkalken und auf Freigang prüfen."
+          ),
+      },
+      {
+          "Gerät / Anlage": "Garland Clamshell Grill",
+          "Fehlercode / Symptom": "Temperaturabweichung Oben/Unten",
+          "Lösung / Notiz": (
+              "Fühlerkalibrierung im Service-Menü durchführen."
+          ),
+      },
+      {
+          "Gerät / Anlage": "Henny Penny Friteuse",
+          "Fehlercode / Symptom": "Heizfehler / Oil Temp Low",
+          "Lösung / Notiz": (
+              "Sicherheitstemperaturbegrenzer (STB) zurücksetzen."
+          ),
+      },
+  ])
 
-# --- GOOGLE DRIVE VERBINDUNG & AUTHENTIFIZIERUNG ---
-@st.cache_resource
-def init_drive_service():
-  try:
-    # Wie heute morgen: JSON-String aus den Secrets parsen
-    raw_json = st.secrets["GDRIVE_JSON"]
-    if isinstance(raw_json, str):
-      secret_data = json.loads(raw_json)
-    else:
-      secret_data = dict(raw_json)
-
-    # Privaten Schlüssel bereinigen (Doppel-Backslashes zu echten Zeilenumbrüchen)
-    if "private_key" in secret_data:
-      secret_data["private_key"] = secret_data["private_key"].replace(
-          "\\n", "\n"
-      )
-
-    folder_id = st.secrets.get("GDRIVE_FOLDER_ID", "1gvcVXerMdevilo5vDDVVFBK8q-wc_uHW")
-
-    creds = service_account.Credentials.from_service_account_info(
-        secret_data, scopes=["https://www.googleapis.com/auth/drive"]
-    )
-
-    service = build("drive", "v3", credentials=creds)
-    return service, folder_id
-
-  except Exception as e:
-    st.error(f"Fehler bei der Verbindung zu Google Drive: {e}")
-    return None, None
-
-
-service, FOLDER_ID = init_drive_service()
-
-if not service or not FOLDER_ID:
-  st.error("Google Drive Service oder Ordner-ID nicht bereit.")
-  st.stop()
-
-
-# --- HILFSFUNKTIONEN FÜR DRIVE ---
-def get_files_in_folder(current_folder_id):
-  try:
-    query = f"'{current_folder_id}' in parents and trashed = false"
-    results = (
-        service.files()
-        .list(
-            q=query,
-            pageSize=50,
-            fields="files(id, name, mimeType, modifiedTime, size)",
-        )
-        .execute()
-    )
-    return results.get("files", [])
-  except Exception as e:
-    st.error(f"Fehler beim Laden der Dateien: {e}")
-    return []
-
-
-# --- HAUPTOBERFLÄCHE DER APP ---
-st.success("Erfolgreich mit Google Drive verbunden!")
-
-tab_list, tab_upload = st.tabs(
-    ["📂 Vorhandene Dokumente & Geräte", "📤 Neues Dokument hochladen"]
+# Tabs für die Bedienung
+tab_list, tab_add = st.tabs(
+    ["📂 Vorhandene Einträge", "➕ Neuen Eintrag hinzufügen"]
 )
 
 with tab_list:
-  st.subheader("Einträge im Wissensdatenbank-Ordner")
+  st.subheader("Übersicht der Wissensdatenbank")
 
-  if st.button("🔄 Liste aktualisieren"):
-    st.rerun()
-
-  files = get_files_in_folder(FOLDER_ID)
-
-  if not files:
-    st.info(
-        "Der Ordner ist aktuell leer oder es konnten keine Dateien gefunden"
-        " werden."
-    )
-  else:
-    for file in files:
-      file_name = file.get("name")
-      file_id = file.get("id")
-      mime_type = file.get("mimeType", "")
-
-      col1, col2, col3 = st.columns([3, 2, 1])
-      with col1:
-        st.markdown(f"**{file_name}**")
-      with col2:
-        st.caption(f"Typ: {mime_type.split('.')[-1]}")
-      with col3:
-        if st.button("Öffnen", key=file_id):
-          st.info("Datei ausgewählt.")
-
-with tab_upload:
-  st.subheader("Neues Dokument oder Handbuch hinzufügen")
-
-  uploaded_file = st.file_uploader(
-      "Wähle eine Datei aus (PDF, TXT, Bilder, etc.)",
-      type=["pdf", "txt", "png", "jpg", "jpeg", "csv"],
+  search_term = st.text_input(
+      "🔍 Suche nach Gerät oder Fehler:", ""
   )
 
-  if uploaded_file is not None:
-    if st.button("In Google Drive hochladen"):
-      file_metadata = {"name": uploaded_file.name, "parents": [FOLDER_ID]}
+  df = st.session_state.waffen_db
 
-      media_upload = MediaIoBaseUpload(
-          io.BytesIO(uploaded_file.getvalue()),
-          mimetype=uploaded_file.type,
-          resumable=True,
-      )
+  if search_term:
+    # Filterung über alle Spalten
+    mask = (
+        df.astype(str)
+        .apply(lambda col: col.str.contains(search_term, case=False))
+        .any(axis=1)
+    )
+    filtered_df = df[mask]
+  else:
+    filtered_df = df
 
-      try:
-        service.files().create(
-            body=file_metadata, media_body=media_upload, fields="id"
-        ).execute()
-        st.success(f"Datei '{uploaded_file.name}' erfolgreich hochgeladen!")
+  st.dataframe(filtered_df, use_container_width=True)
+
+with tab_add:
+  st.subheader("Neuen Eintrag erfassen")
+
+  with st.form("add_form"):
+    geraet = st.text_input("Gerät / Anlage (z.B. Carpigiani, Taylor, Convotherm):")
+    fehler = st.text_input("Fehlercode / Symptom:")
+    loesung = st.text_area("Lösung / Reparatur-Notiz:")
+
+    submitted = st.form_submit_button("Eintrag speichern")
+
+    if submitted:
+      if geraet and loesung:
+        new_entry = {
+            "Gerät / Anlage": geraet,
+            "Fehlercode / Symptom": fehler,
+            "Lösung / Notiz": loesung,
+        }
+        # Neuen Eintrag anfügen
+        st.session_state.waffen_db = pd.concat(
+            [st.session_state.waffen_db, pd.DataFrame([new_entry])],
+            ignore_index=True,
+        )
+        st.success(f"Eintrag für '{geraet}' erfolgreich hinzugefügt!")
         st.rerun()
-      except Exception as e:
-        st.error(f"Fehler beim Hochladen: {e}")
+      else:
+        st.error(
+            "Bitte fülle mindestens die Felder 'Gerät / Anlage' und 'Lösung /"
+            " Notiz' aus."
+        )
