@@ -29,12 +29,16 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- GOOGLE DRIVE ANBINDUNG ---
+# --- GOOGLE DRIVE ANBINDUNG (UNIVERSELL) ---
 @st.cache_resource
 def get_drive_service():
     try:
-        # Greift direkt auf den ursprünglichen Service-Account-Block in den Secrets zu
-        secrets_dict = dict(st.secrets["gcp_service_account"])
+        # Prüfen, ob der Block existiert, ansonsten direkt aus st.secrets lesen
+        if "gcp_service_account" in st.secrets:
+            secrets_dict = dict(st.secrets["gcp_service_account"])
+        else:
+            secrets_dict = dict(st.secrets)
+        
         creds = service_account.Credentials.from_service_account_info(
             secrets_dict, 
             scopes=["https://www.googleapis.com/auth/drive"]
@@ -44,8 +48,13 @@ def get_drive_service():
         st.error(f"Fehler bei der Verbindung zu Google Drive: {e}")
         return None
 
-# Ordner-ID abrufen
-DRIVE_FOLDER_ID = st.secrets.get("GDRIVE_FOLDER_ID", "")
+# Ordner-ID flexibel ermitteln
+if "GDRIVE_FOLDER_ID" in st.secrets:
+    DRIVE_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
+elif "gcp_service_account" in st.secrets and "GDRIVE_FOLDER_ID" in st.secrets["gcp_service_account"]:
+    DRIVE_FOLDER_ID = st.secrets["gcp_service_account"]["GDRIVE_FOLDER_ID"]
+else:
+    DRIVE_FOLDER_ID = st.secrets.get("folder_id", "")
 
 def lade_daten_aus_drive():
     service = get_drive_service()
