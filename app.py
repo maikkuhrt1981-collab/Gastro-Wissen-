@@ -56,7 +56,6 @@ def lade_daten_aus_drive():
         files = results.get('files', [])
         
         if not files:
-            # Wenn die Datei noch nicht existiert, legen wir eine leere Liste an
             speichere_daten_in_drive([])
             return []
             
