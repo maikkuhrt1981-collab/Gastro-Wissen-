@@ -1,4 +1,5 @@
 import io
+import json
 import streamlit as st
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -16,23 +17,20 @@ st.title("🔧 Gastro-Wissensdatenbank")
 @st.cache_resource
 def init_drive_service():
   try:
-    # Direktes Auslesen der flachen TOML-Secrets
-    secret_data = {
-        "type": st.secrets["type"],
-        "project_id": st.secrets["project_id"],
-        "private_key_id": st.secrets["private_key_id"],
-        # Hier werden echte Zeilenumbrüche für das PEM-Format wiederhergestellt
-        "private_key": st.secrets["private_key"].replace("\\n", "\n"),
-        "client_email": st.secrets["client_email"],
-        "client_id": st.secrets["client_id"],
-        "auth_uri": st.secrets["auth_uri"],
-        "token_uri": st.secrets["token_uri"],
-        "auth_provider_x509_cert_url": st.secrets["auth_provider_x509_cert_url"],
-        "client_x509_cert_url": st.secrets["client_x509_cert_url"],
-        "universe_domain": st.secrets["universe_domain"],
-    }
+    # Wie heute morgen: JSON-String aus den Secrets parsen
+    raw_json = st.secrets["GDRIVE_JSON"]
+    if isinstance(raw_json, str):
+      secret_data = json.loads(raw_json)
+    else:
+      secret_data = dict(raw_json)
 
-    folder_id = st.secrets["folder_id"]
+    # Privaten Schlüssel bereinigen (Doppel-Backslashes zu echten Zeilenumbrüchen)
+    if "private_key" in secret_data:
+      secret_data["private_key"] = secret_data["private_key"].replace(
+          "\\n", "\n"
+      )
+
+    folder_id = st.secrets.get("GDRIVE_FOLDER_ID", "1gvcVXerMdevilo5vDDVVFBK8q-wc_uHW")
 
     creds = service_account.Credentials.from_service_account_info(
         secret_data, scopes=["https://www.googleapis.com/auth/drive"]
@@ -104,8 +102,8 @@ with tab_list:
       with col2:
         st.caption(f"Typ: {mime_type.split('.')[-1]}")
       with col3:
-        if st.button("Ansehen", key=file_id):
-          st.info(f"Datei ausgewählt.")
+        if st.button("Öffnen", key=file_id):
+          st.info("Datei ausgewählt.")
 
 with tab_upload:
   st.subheader("Neues Dokument oder Handbuch hinzufügen")
