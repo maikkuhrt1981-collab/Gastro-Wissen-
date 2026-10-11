@@ -29,27 +29,15 @@ def check_password():
 if not check_password():
     st.stop()
 
-# --- GOOGLE DRIVE ANBINDUNG (ULTRA-FLEXIBEL) ---
+# --- GOOGLE DRIVE ANBINDUNG ---
 @st.cache_resource
 def get_drive_service():
     try:
-        # Prüfen, ob der Block existiert, ansonsten die Top-Level-Secrets nutzen
-        if "gcp_service_account" in st.secrets:
-            secrets_dict = dict(st.secrets["gcp_service_account"])
-        else:
-            secrets_dict = {
-                "type": st.secrets.get("type", "service_account"),
-                "project_id": st.secrets.get("project_id"),
-                "private_key_id": st.secrets.get("private_key_id"),
-                "private_key": st.secrets.get("private_key"),
-                "client_email": st.secrets.get("client_email"),
-                "client_id": st.secrets.get("client_id"),
-                "auth_uri": st.secrets.get("auth_uri", "https://accounts.google.com/o/oauth2/auth"),
-                "token_uri": st.secrets.get("token_uri", "https://oauth2.googleapis.com/token"),
-                "auth_provider_x509_cert_url": st.secrets.get("auth_provider_x509_cert_url", "https://www.googleapis.com/oauth2/v1/certs"),
-                "client_x509_cert_url": st.secrets.get("client_x509_cert_url")
-            }
-        
+        if "gcp_service_account" not in st.secrets:
+            st.error("❌ Secret-Fehler: Der Block [gcp_service_account] fehlt in deinen Streamlit-Secrets!")
+            return None
+            
+        secrets_dict = dict(st.secrets["gcp_service_account"])
         creds = service_account.Credentials.from_service_account_info(
             secrets_dict, 
             scopes=["https://www.googleapis.com/auth/drive"]
@@ -59,13 +47,10 @@ def get_drive_service():
         st.error(f"Fehler bei der Verbindung zu Google Drive: {e}")
         return None
 
-# Ordner-ID flexibel ermitteln
-if "GDRIVE_FOLDER_ID" in st.secrets:
-    DRIVE_FOLDER_ID = st.secrets["GDRIVE_FOLDER_ID"]
-elif "gcp_service_account" in st.secrets and "GDRIVE_FOLDER_ID" in st.secrets["gcp_service_account"]:
-    DRIVE_FOLDER_ID = st.secrets["gcp_service_account"]["GDRIVE_FOLDER_ID"]
-else:
-    DRIVE_FOLDER_ID = st.secrets.get("folder_id", "")
+# Ordner-ID abrufen
+DRIVE_FOLDER_ID = st.secrets.get("GDRIVE_FOLDER_ID", "")
+if not DRIVE_FOLDER_ID and "gcp_service_account" in st.secrets:
+    DRIVE_FOLDER_ID = st.secrets["gcp_service_account"].get("GDRIVE_FOLDER_ID", "")
 
 def lade_daten_aus_drive():
     service = get_drive_service()
@@ -97,7 +82,7 @@ def lade_daten_aus_drive():
 def speichere_daten_in_drive(daten):
     service = get_drive_service()
     if not service or not DRIVE_FOLDER_ID:
-        st.error("Google Drive Service oder Ordner-ID nicht bereit.")
+        st.error("Google Drive Service oder Ordner-ID nicht bereit. Bitte Secrets prüfen.")
         return False
     
     try:
@@ -222,6 +207,6 @@ elif menu == "🛠️ Diagnose":
                     st.write(f"Aktuelle Einträge in der Liste: {len(datenbank)}")
                     st.json(datenbank)
                 else:
-                    st.warning("Die Datei 'datenbank.json' existiert noch nicht im Ordner. Sie wird beim nächsten Speichern automatisch erstellt.")
+                    st.warning("Die Datei 'datenbank.json' existiert noch nicht im Ordner.")
             except Exception as e:
                 st.error(f"Fehler bei der Diagnose: {e}")
