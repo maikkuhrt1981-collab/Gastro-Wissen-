@@ -1,3 +1,5 @@
+
+import difflib
 import pandas as pd
 import streamlit as st
 
@@ -9,7 +11,6 @@ st.set_page_config(
 st.title("🔧 Gastro-Wissensdatenbank")
 
 # --- PASSWORTSCHUTZ ---
-# Initialisierung des Login-Status im Session State
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
 
@@ -23,7 +24,6 @@ if not st.session_state.authenticated:
       st.rerun()
     else:
       st.error("Falsches Passwort! Bitte versuche es noch einmal.")
-  # Stoppt die Ausführung der App, solange das Passwort nicht korrekt ist
   st.stop()
 
 
@@ -53,7 +53,7 @@ if "gastro_db" not in st.session_state:
       },
   ])
 
-# --- HAUPTFUNKTIONEN (NACH ERFOLGREICHEM LOGIN) ---
+# --- HAUPTFUNKTIONEN ---
 tab_list, tab_add = st.tabs(
     ["📂 Vorhandene Einträge", "➕ Neuen Eintrag hinzufügen"]
 )
@@ -61,19 +61,40 @@ tab_list, tab_add = st.tabs(
 with tab_list:
   st.subheader("Übersicht der Wissensdatenbank")
 
-  # Die Suchzeile
   search_term = st.text_input(
-      "🔍 Suche nach Gerät oder Fehler:", ""
+      "🔍 Suche nach Gerät oder Fehler (mit Fehlertoleranz):", ""
   )
 
   df = st.session_state.gastro_db
 
   if search_term:
-    mask = (
-        df.astype(str)
-        .apply(lambda col: col.str.contains(search_term, case=False))
-        .any(axis=1)
-    )
+    search_lower = search_term.lower()
+
+
+    # Erweiterte Suche: Prüft Teilstrings, Groß/Kleinschreibung UND Ähnlichkeit (Rechtschreibtoleranz)
+    def fuzzy_match(row):
+      combined_text = (
+          f"{row['Gerät / Anlage']} {row['Fehlercode / Symptom']} {row['Lösung / Notiz']}".lower()
+      )
+      # 1. Direkter Teilstring-Treffer (z.B. "e4" in "e04")
+      if search_lower in combined_text:
+        return True
+
+      # 2. Wort-für-Wort Toleranzprüfung auf Tippfehler
+      words_in_row = combined_text.split()
+      search_words = search_lower.split()
+
+      for sw in search_words:
+        # Prüft, ob ein ähnliches Wort im Text vorkommt (cutoff=0.5 bedeutet hohe Toleranz)
+        matches = difflib.get_close_matches(
+            sw, words_in_row, n=1, cutoff=0.4
+        )
+        if matches:
+          return True
+      return False
+
+
+    mask = df.apply(fuzzy_match, axis=1)
     filtered_df = df[mask]
   else:
     filtered_df = df
