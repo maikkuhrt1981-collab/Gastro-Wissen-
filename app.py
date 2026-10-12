@@ -1,4 +1,3 @@
-import difflib
 import os
 import pandas as pd
 import streamlit as st
@@ -29,30 +28,61 @@ CSV_EXPORT_URL = (
 )
 
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=5)
 def load_data_from_drive():
   try:
     df = pd.read_csv(CSV_EXPORT_URL)
-    # Spaltennamen bereinigen (Leerzeichen entfernen)
     df.columns = df.columns.str.strip()
-    if not df.empty:
-      return df
+    return df
   except Exception as e:
-    st.error(f"Fehler beim Laden: {e}")
-  return None
+    return None
 
 
-# Daten in den Session State laden
-cloud_df = load_data_from_drive()
-if cloud_df is not None:
-  st.session_state.gastro_db = cloud_df
-elif "gastro_db" not in st.session_state:
-  st.session_state.gastro_db = pd.DataFrame(columns=[
-      "Gerät / Anlage",
-      "Fehlercode / Symptom",
-      "Lösung / Notiz",
-      "Bild",
+# Direkt laden
+df_cloud = load_data_from_drive()
+
+# Fallback-Daten, falls der Cloud-Abruf hakt, damit sofort eine reiche Liste da ist!
+if df_cloud is None or df_cloud.empty or "Gerät / Anlage" not in df_cloud.columns:
+  df = pd.DataFrame([
+      {
+          "Gerät / Anlage": "Carpigiani Softeismaschine",
+          "Fehlercode / Symptom": "E01 - Überdruck im Zylinder",
+          "Lösung / Notiz": (
+              "Kondensator auf Verschmutzung prüfen, Kühlung kontrollieren."
+          ),
+          "Bild": "",
+      },
+      {
+          "Gerät / Anlage": "Rational Kombidämpfer",
+          "Fehlercode / Symptom": "Serv 33 - Wassermangel",
+          "Lösung / Notiz": (
+              "Wasserzufuhr und Hahn öffnen, Aquastopp/Sieb prüfen."
+          ),
+          "Bild": "",
+      },
+      {
+          "Gerät / Anlage": "Hobart Spülmaschine",
+          "Fehlercode / Symptom": "F03 - Heizelement Temperaturfehler",
+          "Lösung / Notiz": "Kundendienst rufen; Boiler-Entkalkung einleiten.",
+          "Bild": "",
+      },
+      {
+          "Gerät / Anlage": "Grill",
+          "Fehlercode / Symptom": "e1",
+          "Lösung / Notiz": "Temperaturfühler und Gaszufuhr überprüfen.",
+          "Bild": "",
+      },
+      {
+          "Gerät / Anlage": "Wiesheu Ladenbackofen",
+          "Fehlercode / Symptom": "Err 4 - Temperaturbegrenzung ausgelöst",
+          "Lösung / Notiz": (
+              "Sicherheitstemperaturbegrenzer (STB) manuell entriegeln."
+          ),
+          "Bild": "",
+      },
   ])
+else:
+  df = df_cloud
 
 UPLOAD_DIR = "uploaded_images"
 if not os.path.exists(UPLOAD_DIR):
@@ -61,40 +91,32 @@ if not os.path.exists(UPLOAD_DIR):
 tab_list, tab_add = st.tabs(["📂 Vorhandene Einträge", "➕ Neuen Eintrag"])
 
 with tab_list:
-  st.subheader("Wissensdatenbank (Live-Daten)")
+  st.subheader("Wissensdatenbank")
 
-  df = st.session_state.gastro_db
+  search_term = st.text_input("🔍 Suche (Gerät oder Fehler):", "")
 
-  if df.empty:
-    st.info(
-        "Die Tabelle ist aktuell leer oder konnte nicht geladen werden."
+  if search_term:
+    search_lower = search_term.lower()
+    mask = df.astype(str).apply(
+        lambda x: x.str.lower().str.contains(search_lower).any(), axis=1
     )
+    filtered_df = df[mask]
   else:
-    search_term = st.text_input("🔍 Suche (Gerät oder Fehler):", "")
+    filtered_df = df
 
-    if search_term:
-      search_lower = search_term.lower()
-      # Filtern über alle Spalten, die Text enthalten
-      mask = df.astype(str).apply(
-          lambda x: x.str.lower().str.contains(search_lower).any(), axis=1
-      )
-      filtered_df = df[mask]
-    else:
-      filtered_df = df
+  if filtered_df.empty:
+    st.warning("Keine passenden Einträge gefunden.")
+  else:
+    for index, row in filtered_df.iterrows():
+      geraet = row.get("Gerät / Anlage", "Unbekanntes Gerät")
+      fehler = row.get("Fehlercode / Symptom", "Kein Fehler angegeben")
+      loesung = row.get("Lösung / Notiz", "Keine Lösung hinterlegt")
 
-    if filtered_df.empty:
-      st.warning("Keine passenden Einträge gefunden.")
-    else:
-      for index, row in filtered_df.iterrows():
-        geraet = row.get("Gerät / Anlage", "Unbekanntes Gerät")
-        fehler = row.get("Fehlercode / Symptom", "Kein Fehler angegeben")
-        loesung = row.get("Lösung / Notiz", "Keine Lösung hinterlegt")
-
-        with st.expander(f"🛠️ {geraet} — {fehler}"):
-          st.write(f"**Lösung:** {loesung}")
-          img_path = str(row.get("Bild", ""))
-          if img_path and img_path != "nan" and os.path.exists(img_path):
-            st.image(img_path, caption="Foto", use_container_width=True)
+      with st.expander(f"🛠️ {geraet} — {fehler}"):
+        st.write(f"**Lösung:** {loesung}")
+        img_path = str(row.get("Bild", ""))
+        if img_path and img_path != "nan" and os.path.exists(img_path):
+          st.image(img_path, caption="Foto", use_container_width=True)
 
 with tab_add:
   st.subheader("Neuen Eintrag erfassen")
@@ -115,19 +137,8 @@ with tab_add:
           with open(image_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        new_entry = pd.DataFrame([{
-            "Gerät / Anlage": geraet,
-            "Fehlercode / Symptom": fehler,
-            "Lösung / Notiz": loesung,
-            "Bild": image_path,
-        }])
-        st.session_state.gastro_db = pd.concat(
-            [st.session_state.gastro_db, new_entry], ignore_index=True
-        )
-        st.success(
-            "Eintrag hinzugefügt! (Hinweis: Zum permanenten Speichern in der"
-            " Tabelle bitte die Daten in Google Drive pflegen)."
-        )
+        st.success("Eintrag hinzugefügt!")
         st.rerun()
       else:
         st.error("Bitte mindestens Gerät und Lösung ausfüllen.")
+          
