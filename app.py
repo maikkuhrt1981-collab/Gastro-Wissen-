@@ -3,7 +3,7 @@ import pandas as pd
 import streamlit as st
 
 st.set_page_config(
-    page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="wide"
+    page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="centered"
 )
 st.title("🔧 Gastro-Wissensdatenbank")
 
@@ -33,47 +33,14 @@ if "gastro_db" not in st.session_state:
     try:
       st.session_state.gastro_db = pd.read_csv(DB_FILE)
     except Exception:
-      st.session_state.gastro_db = pd.DataFrame()
-
-  if "gastro_db" not in st.session_state or st.session_state.gastro_db.empty:
-    st.session_state.gastro_db = pd.DataFrame([
-        {
-            "Gerät / Anlage": "Carpigiani Softeismaschine",
-            "Fehlercode / Symptom": "E01 - Überdruck im Zylinder",
-            "Lösung / Notiz": (
-                "Kondensator auf Verschmutzung prüfen, Kühlung kontrollieren."
-            ),
-            "Bild": "",
-        },
-        {
-            "Gerät / Anlage": "Rational Kombidämpfer",
-            "Fehlercode / Symptom": "Serv 33 - Wassermangel",
-            "Lösung / Notiz": (
-                "Wasserzufuhr und Hahn öffnen, Aquastopp/Sieb prüfen."
-            ),
-            "Bild": "",
-        },
-        {
-            "Gerät / Anlage": "Hobart Spülmaschine",
-            "Fehlercode / Symptom": "F03 - Heizelement Temperaturfehler",
-            "Lösung / Notiz": "Kundendienst rufen; Boiler-Entkalkung einleiten.",
-            "Bild": "",
-        },
-        {
-            "Gerät / Anlage": "Grill",
-            "Fehlercode / Symptom": "e1",
-            "Lösung / Notiz": "Temperaturfühler und Gaszufuhr überprüfen.",
-            "Bild": "",
-        },
-        {
-            "Gerät / Anlage": "Wiesheu Ladenbackofen",
-            "Fehlercode / Symptom": "Err 4 - Temperaturbegrenzung ausgelöst",
-            "Lösung / Notiz": (
-                "Sicherheitstemperaturbegrenzer (STB) manuell entriegeln."
-            ),
-            "Bild": "",
-        },
-    ])
+      st.session_state.gastro_db = pd.DataFrame(
+          columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
+      )
+  
+  if "gastro_db" not in st.session_state or st.session_state.gastro_db is None or st.session_state.gastro_db.empty:
+    st.session_state.gastro_db = pd.DataFrame(
+        columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
+    )
     st.session_state.gastro_db.to_csv(DB_FILE, index=False)
 
 tab_list, tab_add = st.tabs(["📂 Vorhandene Einträge", "➕ Neuen Eintrag"])
@@ -94,7 +61,7 @@ with tab_list:
     filtered_df = df
 
   if filtered_df.empty:
-    st.warning("Keine passenden Einträge gefunden.")
+    st.info("Noch keine Einträge vorhanden oder keine Treffer gefunden.")
   else:
     for index, row in filtered_df.iterrows():
       geraet = str(row.get("Gerät / Anlage", "Unbekanntes Gerät"))
@@ -102,7 +69,16 @@ with tab_list:
       loesung = str(row.get("Lösung / Notiz", "Keine Lösung hinterlegt"))
 
       with st.expander(f"🛠️ {geraet} — {fehler}"):
+        # Lösch-Button direkt oben im aufgeklappten Bereich platziert
+        if st.button("🗑️ Diesen Eintrag löschen", key=f"del_in_{index}"):
+          st.session_state.gastro_db = st.session_state.gastro_db.drop(index).reset_index(drop=True)
+          st.session_state.gastro_db.to_csv(DB_FILE, index=False)
+          st.success("Eintrag wurde gelöscht!")
+          st.rerun()
+
+        st.markdown("---")
         st.write(f"**Lösung:** {loesung}")
+        
         img_path = str(row.get("Bild", ""))
         if img_path and img_path != "nan" and os.path.exists(img_path):
           st.image(img_path, caption="Foto", use_container_width=True)
