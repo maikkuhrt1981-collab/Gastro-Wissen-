@@ -21,7 +21,7 @@ if not st.session_state.authenticated:
       st.error("Falsches Passwort!")
   st.stop()
 
-# --- FESTER DATENBESTAND (Zuverlässig & Sofort da) ---
+# --- FESTER DATENBESTAND ---
 if "gastro_db" not in st.session_state:
   st.session_state.gastro_db = pd.DataFrame([
       {
@@ -76,7 +76,6 @@ with tab_list:
 
   if search_term:
     search_lower = search_term.lower()
-    # Sichere Suche über alle Spalten
     mask = df.astype(str).apply(
         lambda x: x.str.lower().str.contains(search_lower).any(), axis=1
     )
@@ -100,17 +99,17 @@ with tab_list:
 
 with tab_add:
   st.subheader("Neuen Eintrag erfassen")
-  with st.form("add_form"):
-    geraet = st.text_input("Gerät / Anlage:")
-    fehler = st.text_input("Fehlercode / Symptom:")
-    loesung = st.text_area("Lösung / Notiz:")
+  with st.form("add_form_clean", clear_on_submit=True):
+    geraet_input = st.text_input("Gerät / Anlage:")
+    fehler_input = st.text_input("Fehlercode / Symptom:")
+    loesung_input = st.text_area("Lösung / Notiz:")
     uploaded_file = st.file_uploader(
-        "📷 Foto hochladen:", type=["jpg", "jpeg", "png"]
+        "📷 Foto hochladen (optional):", type=["jpg", "jpeg", "png"]
     )
-    submitted = st.form_submit_button("Hinzufügen")
+    submitted = st.form_submit_button("Eintrag speichern")
 
     if submitted:
-      if geraet and loesung:
+      if geraet_input and loesung_input:
         image_path = ""
         if uploaded_file is not None:
           image_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
@@ -118,9 +117,9 @@ with tab_add:
             f.write(uploaded_file.getbuffer())
 
         new_entry = pd.DataFrame([{
-            "Gerät / Anlage": geraet,
-            "Fehlercode / Symptom": fehler,
-            "Lösung / Notiz": loesung,
+            "Gerät / Anlage": geraet_input,
+            "Fehlercode / Symptom": fehler_input,
+            "Lösung / Notiz": loesung_input,
             "Bild": image_path,
         }])
         st.session_state.gastro_db = pd.concat(
@@ -129,4 +128,7 @@ with tab_add:
         st.success("Erfolgreich hinzugefügt!")
         st.rerun()
       else:
-        st.error("Bitte mindestens Gerät und Lösung ausfüllen.")
+        st.error(
+            "Bitte fülle mindestens die Felder 'Gerät / Anlage' und 'Lösung /"
+            " Notiz' aus."
+        )
