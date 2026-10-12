@@ -21,29 +21,9 @@ if not st.session_state.authenticated:
       st.error("Falsches Passwort!")
   st.stop()
 
-# --- DATEN AUS GOOGLE DRIVE LADEN ---
-SHEET_ID = "1EB6sE6_YGgY1vFKh0oC1tq4UPXbAlbVFRHWE6-5L7jo"
-CSV_EXPORT_URL = (
-    f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
-)
-
-
-@st.cache_data(ttl=5)
-def load_data_from_drive():
-  try:
-    df = pd.read_csv(CSV_EXPORT_URL)
-    df.columns = df.columns.str.strip()
-    return df
-  except Exception as e:
-    return None
-
-
-# Direkt laden
-df_cloud = load_data_from_drive()
-
-# Fallback-Daten, falls der Cloud-Abruf hakt, damit sofort eine reiche Liste da ist!
-if df_cloud is None or df_cloud.empty or "Gerät / Anlage" not in df_cloud.columns:
-  df = pd.DataFrame([
+# --- FESTER DATENBESTAND (Zuverlässig & Sofort da) ---
+if "gastro_db" not in st.session_state:
+  st.session_state.gastro_db = pd.DataFrame([
       {
           "Gerät / Anlage": "Carpigiani Softeismaschine",
           "Fehlercode / Symptom": "E01 - Überdruck im Zylinder",
@@ -81,8 +61,6 @@ if df_cloud is None or df_cloud.empty or "Gerät / Anlage" not in df_cloud.colum
           "Bild": "",
       },
   ])
-else:
-  df = df_cloud
 
 UPLOAD_DIR = "uploaded_images"
 if not os.path.exists(UPLOAD_DIR):
@@ -94,9 +72,11 @@ with tab_list:
   st.subheader("Wissensdatenbank")
 
   search_term = st.text_input("🔍 Suche (Gerät oder Fehler):", "")
+  df = st.session_state.gastro_db
 
   if search_term:
     search_lower = search_term.lower()
+    # Sichere Suche über alle Spalten
     mask = df.astype(str).apply(
         lambda x: x.str.lower().str.contains(search_lower).any(), axis=1
     )
@@ -137,8 +117,16 @@ with tab_add:
           with open(image_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
 
-        st.success("Eintrag hinzugefügt!")
+        new_entry = pd.DataFrame([{
+            "Gerät / Anlage": geraet,
+            "Fehlercode / Symptom": fehler,
+            "Lösung / Notiz": loesung,
+            "Bild": image_path,
+        }])
+        st.session_state.gastro_db = pd.concat(
+            [st.session_state.gastro_db, new_entry], ignore_index=True
+        )
+        st.success("Erfolgreich hinzugefügt!")
         st.rerun()
       else:
         st.error("Bitte mindestens Gerät und Lösung ausfüllen.")
-          
