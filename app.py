@@ -2,11 +2,16 @@ import os
 import pandas as pd
 import streamlit as st
 
+# Seiten-Konfiguration (Muss ganz am Anfang stehen!)
 st.set_page_config(
-    page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="centered"
+    page_title="Gastro-Wissensdatenbank",
+    page_icon="🔧",
+    layout="centered",
 )
+
 st.title("🔧 Gastro-Wissensdatenbank")
 
+# Passwort-Schutz
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
 
@@ -69,7 +74,7 @@ with tab_list:
       loesung = str(row.get("Lösung / Notiz", "Keine Lösung hinterlegt"))
 
       with st.expander(f"🛠️ {geraet} — {fehler}"):
-        # Lösch-Button direkt oben im aufgeklappten Bereich platziert
+        # Lösch-Button direkt oben im aufgeklappten Bereich für schnellen Zugriff
         if st.button("🗑️ Diesen Eintrag löschen", key=f"del_in_{index}"):
           st.session_state.gastro_db = st.session_state.gastro_db.drop(index).reset_index(drop=True)
           st.session_state.gastro_db.to_csv(DB_FILE, index=False)
