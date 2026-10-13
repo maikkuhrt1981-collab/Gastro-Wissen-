@@ -1,15 +1,18 @@
-import gspread
 import pandas as pd
 import streamlit as st
-from google.oauth2.service_account import Credentials
+
+# Seiten-Konfiguration (mobil-optimiert)
+st.set_page_config(
+    page_title="Gastro-Wissensdatenbank", page_icon="🔧", layout="centered"
+)
 
 # Passwort-Schutz
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = False
 
 if not st.session_state.authenticated:
-  st.subheader("🔒 Bitte Passwort eingeben")
-  password_input = st.text_input("Passwort:", type="password")
+  st.subheader("🔒 Gastro-Wissensdatenbank Login")
+  password_input = st.text_input("Passwort eingeben:", type="password")
   if st.button("Anmelden"):
     if password_input == "Gastro2026":
       st.session_state.authenticated = True
@@ -18,20 +21,19 @@ if not st.session_state.authenticated:
       st.error("Falsches Passwort!")
   st.stop()
 
+st.title("🔧 Gastro-Wissensdatenbank")
+st.success("Erfolgreich angemeldet!")
 
-# Verbindung zu Google Sheets via gspread herstellen
-@st.cache_resource
-py_gc = None
+# Google Sheets Daten laden
+sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+csv_url = sheet_url.replace("/edit?usp=drivesdk", "/export?format=csv")
 
-
-def get_sheet_data():
-  # Holt den Spreadsheet-Link aus den Secrets
-  sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-
-  # Verbindung aufbauen (für öffentliche oder freigegebene Tabellen)
-  gc = gspread.oauth_from_dict(...)  # oder direkt über public sheet:
-  # Alternativ ganz einfach über pandas lesbar, wenn die Tabelle öffentlich/geteilt ist:
-  df = pd.read_csv(
-      sheet_url.replace("/edit?usp=drivesdk", "/export?format=csv")
+try:
+  df = pd.read_csv(csv_url)
+  st.write("### Aktuelle Einträge:")
+  st.dataframe(df)
+except Exception as e:
+  st.info(
+      "Deine Tabelle ist noch leer oder wird geladen. Füge hier bald deine"
+      " Einträge ein!"
   )
-  return df
