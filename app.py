@@ -1,3 +1,4 @@
+import base64
 import pandas as pd
 import requests
 import streamlit as st
@@ -44,10 +45,26 @@ with tab_lesen:
 
     if not df.empty:
       st.dataframe(df, use_container_width=True)
+
+      st.markdown("---")
+      st.subheader("🖼️ Bild / Details anzeigen")
+      eintrag_index = st.selectbox(
+          "Wähle Zeile aus:",
+          options=df.index,
+          format_func=lambda x: f"Zeile {x+2}: {df.iloc[x].values[0]}",
+      )
+      if eintrag_index is not None:
+        akt_zeile = df.iloc[eintrag_index]
+        letzte_spalte = str(akt_zeile.values[-1])
+        if letzte_spalte.startswith("http"):
+          st.markdown(f"🔗 [Direkt zum Bild in Google Drive]({letzte_spalte})")
+          st.image(letzte_spalte, caption="Hochgeladenes Bild", width=300)
+        else:
+          st.info("Für diesen Eintrag ist kein Bild hinterlegt.")
     else:
       st.info("Die Tabelle ist noch leer.")
-  except Exception:
-    st.info("Tabelle wird geladen oder ist noch leer.")
+  except Exception as e:
+    st.info(f"Tabelle wird geladen... ({e})")
 
 # --- TAB 2: NEUER EINTRAG ---
 with tab_neu:
@@ -66,19 +83,30 @@ with tab_neu:
     if submitted:
       if anlage and loesung:
         try:
-          bild_name = bild_datei.name if bild_datei else "Kein Bild"
+          bild_data_b64 = ""
+          bild_name = ""
+          bild_mime = ""
+
+          if bild_datei is not None:
+            bild_name = bild_datei.name
+            bild_mime = bild_datei.type
+            bild_data_b64 = base64.b64encode(bild_datei.getvalue()).decode(
+                "utf-8"
+            )
+
           payload = {
               "anlage": anlage,
               "fehlercode": fehlercode,
               "loesung": loesung,
-              "bild": bild_name,
+              "bild_name": bild_name,
+              "bild_mime": bild_mime,
+              "bild_data": bild_data_b64,
           }
           response = requests.post(WEB_APP_URL, json=payload)
 
           if response.status_code == 200:
             st.success(
-                "Erfolgreich in Google Sheets gespeichert! Seite wird"
-                " aktualisiert..."
+                "Erfolgreich mit Bild in Google Drive & Sheets gespeichert!"
             )
             st.rerun()
           else:
