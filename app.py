@@ -1,8 +1,8 @@
-import os
 import pandas as pd
 import streamlit as st
+from streamlit_gsheets import GsheetsConnection
 
-# Seiten-Konfiguration (Muss ganz am Anfang stehen!)
+# Seiten-Konfiguration
 st.set_page_config(
     page_title="Gastro-Wissensdatenbank",
     page_icon="🔧",
@@ -26,27 +26,23 @@ if not st.session_state.authenticated:
       st.error("Falsches Passwort!")
   st.stop()
 
-# --- DAUERHAFTE SPEICHERUNG AUF DEM SERVER ---
-DB_FILE = "gastro_lokal.csv"
-UPLOAD_DIR = "uploaded_images"
-if not os.path.exists(UPLOAD_DIR):
-  os.makedirs(UPLOAD_DIR)
+# --- VERBINDUNG ZU GOOGLE SHEETS ---
+# Wir verbinden uns mit der Google-Tabelle über die Streamlit Connection
+conn = st.connection("gsheets", type=GsheetsConnection)
 
-# Laden oder Initialisieren der persistenten Datenbank
-if "gastro_db" not in st.session_state:
-  if os.path.exists(DB_FILE):
-    try:
-      st.session_state.gastro_db = pd.read_csv(DB_FILE)
-    except Exception:
-      st.session_state.gastro_db = pd.DataFrame(
-          columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
-      )
-  
-  if "gastro_db" not in st.session_state or st.session_state.gastro_db is None or st.session_state.gastro_db.empty:
-    st.session_state.gastro_db = pd.DataFrame(
+# Daten aus Google Sheets laden (ttl=0 sorgt dafür, dass immer die aktuellen Daten geholt werden)
+try:
+  df = conn.read(ttl=0)
+  if df is None or df.empty:
+    df = pd.DataFrame(
         columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
     )
-    st.session_state.gastro_db.to_csv(DB_FILE, index=False)
+except Exception:
+  df = pd.DataFrame(
+      columns=["Gerät / Anlage", "Fehlercode / Symptom", "Lösung / Notiz", "Bild"]
+  )
+
+st.session_state.gastro_db = df
 
 tab_list, tab_add = st.tabs(["📂 Vorhandene Einträge", "➕ Neuen Eintrag"])
 
@@ -54,16 +50,16 @@ with tab_list:
   st.subheader("Wissensdatenbank")
 
   search_term = st.text_input("🔍 Suche (Gerät oder Fehler):", "")
-  df = st.session_state.gastro_db
+  current_df = st.session_state.gastro_db
 
   if search_term:
     search_lower = search_term.lower()
-    mask = df.astype(str).apply(
+    mask = current_df.astype(str).apply(
         lambda x: x.str.lower().str.contains(search_lower).any(), axis=1
     )
-    filtered_df = df[mask]
+    filtered_df = current_df[mask]
   else:
-    filtered_df = df
+    filtered_df = current_df
 
   if filtered_df.empty:
     st.info("Noch keine Einträge vorhanden oder keine Treffer gefunden.")
@@ -74,53 +70,51 @@ with tab_list:
       loesung = str(row.get("Lösung / Notiz", "Keine Lösung hinterlegt"))
 
       with st.expander(f"🛠️ {geraet} — {fehler}"):
-        # Lösch-Button direkt oben im aufgeklappten Bereich für schnellen Zugriff
         if st.button("🗑️ Diesen Eintrag löschen", key=f"del_in_{index}"):
-          st.session_state.gastro_db = st.session_state.gastro_db.drop(index).reset_index(drop=True)
-          st.session_state.gastro_db.to_csv(DB_FILE, index=False)
+          # Zeile aus dem DataFrame entfernen
+          updated_df = st.session_state.gastro_db.drop(index).reset_index(drop=True)
+          # Sofort in Google Sheets aktualisieren
+          conn.update(data=updated_df)
+          st.session_state.gastro_db = updated_df
           st.success("Eintrag wurde gelöscht!")
           st.rerun()
 
         st.markdown("---")
         st.write(f"**Lösung:** {loesung}")
-        
+
         img_path = str(row.get("Bild", ""))
-        if img_path and img_path != "nan" and os.path.exists(img_path):
-          st.image(img_path, caption="Foto", use_container_width=True)
+        if img_path and img_path != "nan" and img_path != "":
+          st.image(img_path, caption="Foto-Link / Bild", use_container_width=True)
 
 with tab_add:
   st.subheader("Neuen Eintrag erfassen")
-  with st.form("add_form_persist", clear_on_submit=True):
+  with st.form("add_form_gsheets", clear_on_submit=True):
     geraet_input = st.text_input("Gerät / Anlage:")
     fehler_input = st.text_input("Fehlercode / Symptom:")
     loesung_input = st.text_area("Lösung / Notiz:")
-    uploaded_file = st.file_uploader(
-        "📷 Foto hochladen (optional):", type=["jpg", "jpeg", "png"]
+    image_link_input = st.text_input(
+        "📷 Bild-Link (optional, z.B. Web-Adresse):"
     )
     submitted = st.form_submit_button("Eintrag speichern")
 
     if submitted:
       if geraet_input and loesung_input:
-        image_path = ""
-        if uploaded_file is not None:
-          image_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
-          with open(image_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-
-        new_row = {
+        new_row = pd.DataFrame([{
             "Gerät / Anlage": geraet_input,
             "Fehlercode / Symptom": fehler_input,
             "Lösung / Notiz": loesung_input,
-            "Bild": image_path,
-        }
+            "Bild": image_link_input,
+        }])
 
-        st.session_state.gastro_db = pd.concat(
-            [st.session_state.gastro_db, pd.DataFrame([new_row])],
-            ignore_index=True,
+        # An bestehende Tabelle anhängen
+        updated_df = pd.concat(
+            [st.session_state.gastro_db, new_row], ignore_index=True
         )
-        st.session_state.gastro_db.to_csv(DB_FILE, index=False)
+        # In Google Sheets speichern
+        conn.update(data=updated_df)
+        st.session_state.gastro_db = updated_df
 
-        st.success("Eintrag erfolgreich dauerhaft gespeichert!")
+        st.success("Eintrag erfolgreich in Google Sheets gespeichert!")
         st.rerun()
       else:
         st.error(
