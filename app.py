@@ -1,4 +1,5 @@
 import gspread
+from google.oauth2.service_account import Credentials
 import pandas as pd
 import streamlit as st
 
@@ -24,7 +25,6 @@ if not st.session_state.authenticated:
 
 st.title("🔧 Gastro-Wissensdatenbank")
 
-# Spreadsheet URL aus den Secrets holen
 sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
 
 # Tabs für Ansicht und Neuer Eintrag
@@ -47,7 +47,7 @@ with tab_lesen:
 with tab_neu:
   st.subheader("Neuen Fehler / Lösung erfassen")
 
-  with st.form("neuer_eintrag_form"):
+  with st.form("neuer_eintrag_form", clear_on_submit=True):
     anlage = st.text_input("Anlage / Gerät (z.B. Kombidämpfer Rational)")
     fehlercode = st.text_input("Fehlercode / Symptom (z.B. E05 Wasserstand)")
     loesung = st.text_area("Lösung / Notiz")
@@ -60,25 +60,28 @@ with tab_neu:
     if submitted:
       if anlage and loesung:
         try:
-          # Verbindung über gspread mit anonymer/öffentlicher Bearbeitung herstellen
-          gc = gspread.no_effect_client()  # Öffentlicher Client für offene Sheets
-          # Alternativ öffnen über gspread gsheet open
-          sh = gc.open_by_url(sheet_url)
-          worksheet = sh.get_worksheet(0)
+          # Verbindung über gspread mit den Secrets aufbauen
+          scope = [
+              "https://www.googleapis.com/auth/spreadsheets",
+              "https://www.googleapis.com/auth/drive",
+          ]
+          creds_dict = dict(st.secrets["connections"]["gsheets"])
+          creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+          client = gspread.authorize(creds)
 
+          # Tabelle öffnen und Zeile anhängen
+          sheet = client.open_by_url(sheet_url).sheet1
           bild_name = bild_datei.name if bild_datei else "Kein Bild"
-          new_row = [anlage, fehlercode, loesung, bild_name]
-          worksheet.append_row(new_row)
+          sheet.append_row([anlage, fehlercode, loesung, bild_name])
 
           st.success("Erfolgreich in Google Sheets gespeichert!")
           st.rerun()
         except Exception as e:
-          # Fallback: Direkt über die gspread open Methode mit Service Account oder Credentials
           st.error(
-              "Da die Tabelle öffentlich bearbeitbar ist, nutzen wir eine"
-              " direkte Methode. (Fehlerdetails: "
-              + str(e)
-              + ")"
+              "Hinweis zum Schreibzugriff: Für das direkte Eintragen aus der App"
+              " heraus wird der Google Service Account benötigt. Alternativ"
+              " kannst du deine Einträge aktuell direkt in der Google-Tabelle"
+              " ergänzen, während die Ansicht in der App perfekt funktioniert!"
           )
       else:
         st.warning("Bitte mindestens 'Anlage' und 'Lösung' ausfüllen.")
