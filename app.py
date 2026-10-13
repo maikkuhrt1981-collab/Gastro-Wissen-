@@ -1,6 +1,5 @@
-import gspread
-from google.oauth2.service_account import Credentials
 import pandas as pd
+import requests
 import streamlit as st
 
 # Seiten-Konfiguration (mobil-optimiert)
@@ -25,13 +24,17 @@ if not st.session_state.authenticated:
 
 st.title("🔧 Gastro-Wissensdatenbank")
 
-sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+# Fester Link zur Tabelle (zum Lesen)
+sheet_url = "https://docs.google.com/spreadsheets/d/1L8WF_WNugzy8rTgHjBJ-aS7OG01qnVonDfeDkW5xA8Q/edit?usp=drivesdk"
 csv_url = sheet_url.replace("/edit?usp=drivesdk", "/export?format=csv")
+
+# Deine Google Apps Script Web-App URL
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbzloAvku7M8R1f8lk9Z45kVjwiITcCnW234FZ3l8QqEwhaibsB_6JQ8FU6MJbcw06gu/exec"
 
 # Tabs für Ansicht und Neuer Eintrag
 tab_lesen, tab_neu = st.tabs(["📚 Einträge anzeigen", "➕ Neuer Eintrag"])
 
-# --- TAB 1: ANZEIGEN & LÖSCHEN ---
+# --- TAB 1: ANZEIGEN ---
 with tab_lesen:
   st.subheader("Aktuelle Einträge")
   try:
@@ -41,37 +44,6 @@ with tab_lesen:
 
     if not df.empty:
       st.dataframe(df, use_container_width=True)
-
-      # Lösch-Funktion
-      st.markdown("---")
-      st.subheader("🗑️ Eintrag löschen")
-      eintrag_zu_loeschen = st.selectbox(
-          "Wähle einen Eintrag zum Löschen:",
-          options=df.index,
-          format_func=lambda x: (
-              f"Zeile {x+2}: {df.iloc[x].values[0]} -"
-              f" {df.iloc[x].values[1] if len(df.iloc[x]) > 1 else ''}"
-          ),
-      )
-
-      if st.button("Ausgewählten Eintrag löschen"):
-        try:
-          scope = [
-              "https://www.googleapis.com/auth/spreadsheets",
-              "https://www.googleapis.com/auth/drive",
-          ]
-          creds_dict = dict(st.secrets["connections"]["gsheets"])
-          creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-          client = gspread.authorize(creds)
-          sheet = client.open_by_url(sheet_url).sheet1
-          sheet.delete_rows(int(eintrag_zu_loeschen) + 2)
-          st.success("Eintrag erfolgreich gelöscht! Seite wird aktualisiert...")
-          st.rerun()
-        except Exception as e:
-          st.error(
-              "Fehler beim Löschen. Bitte prüfe die Service-Account-Berechtigung"
-              " in den Secrets."
-          )
     else:
       st.info("Die Tabelle ist noch leer.")
   except Exception:
@@ -94,25 +66,24 @@ with tab_neu:
     if submitted:
       if anlage and loesung:
         try:
-          scope = [
-              "https://www.googleapis.com/auth/spreadsheets",
-              "https://www.googleapis.com/auth/drive",
-          ]
-          creds_dict = dict(st.secrets["connections"]["gsheets"])
-          creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-          client = gspread.authorize(creds)
-
-          sheet = client.open_by_url(sheet_url).sheet1
           bild_name = bild_datei.name if bild_datei else "Kein Bild"
-          sheet.append_row([anlage, fehlercode, loesung, bild_name])
+          payload = {
+              "anlage": anlage,
+              "fehlercode": fehlercode,
+              "loesung": loesung,
+              "bild": bild_name,
+          }
+          response = requests.post(WEB_APP_URL, json=payload)
 
-          st.success("Erfolgreich in Google Sheets gespeichert!")
-          st.rerun()
+          if response.status_code == 200:
+            st.success(
+                "Erfolgreich in Google Sheets gespeichert! Seite wird"
+                " aktualisiert..."
+            )
+            st.rerun()
+          else:
+            st.error("Fehler beim Speichern über das Skript.")
         except Exception as e:
-          st.error(
-              "Fehler beim Speichern. Bitte stelle sicher, dass die"
-              " Service-Account-Daten in den Streamlit Secrets hinterlegt sind"
-              " und die E-Mail als Bearbeiter in der Tabelle berechtigt ist."
-          )
+          st.error(f"Verbindungsfehler: {e}")
       else:
         st.warning("Bitte mindestens 'Anlage' und 'Lösung' ausfüllen.")
