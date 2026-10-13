@@ -1,5 +1,3 @@
-import gspread
-from google.oauth2.service_account import Credentials
 import pandas as pd
 import streamlit as st
 
@@ -36,52 +34,26 @@ with tab_lesen:
   csv_url = sheet_url.replace("/edit?usp=drivesdk", "/export?format=csv")
   try:
     df = pd.read_csv(csv_url)
-    if not df.empty:
+    # Spaltennamen bereinigen (falls Leerzeichen drin sind)
+    df.columns = df.columns.str.strip()
+    # Leere Zeilen entfernen
+    df = df.dropna(how="all")
+
+    if not df.empty and len(df.columns) > 0:
       st.dataframe(df, use_container_width=True)
     else:
-      st.info("Die Tabelle ist noch leer.")
-  except Exception:
+      st.info(
+          "Die Tabelle ist aktuell noch leer. Trage in deiner Google-Tabelle"
+          " einen ersten Wert ein!"
+      )
+  except Exception as e:
     st.info("Tabelle wird geladen oder ist noch leer.")
 
 # --- TAB 2: NEUER EINTRAG ---
 with tab_neu:
   st.subheader("Neuen Fehler / Lösung erfassen")
-
-  with st.form("neuer_eintrag_form", clear_on_submit=True):
-    anlage = st.text_input("Anlage / Gerät (z.B. Kombidämpfer Rational)")
-    fehlercode = st.text_input("Fehlercode / Symptom (z.B. E05 Wasserstand)")
-    loesung = st.text_area("Lösung / Notiz")
-    bild_datei = st.file_uploader(
-        "Bild hinzufügen (optional)", type=["png", "jpg", "jpeg"]
-    )
-
-    submitted = st.form_submit_button("Eintrag speichern")
-
-    if submitted:
-      if anlage and loesung:
-        try:
-          # Verbindung über gspread mit den Secrets aufbauen
-          scope = [
-              "https://www.googleapis.com/auth/spreadsheets",
-              "https://www.googleapis.com/auth/drive",
-          ]
-          creds_dict = dict(st.secrets["connections"]["gsheets"])
-          creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-          client = gspread.authorize(creds)
-
-          # Tabelle öffnen und Zeile anhängen
-          sheet = client.open_by_url(sheet_url).sheet1
-          bild_name = bild_datei.name if bild_datei else "Kein Bild"
-          sheet.append_row([anlage, fehlercode, loesung, bild_name])
-
-          st.success("Erfolgreich in Google Sheets gespeichert!")
-          st.rerun()
-        except Exception as e:
-          st.error(
-              "Hinweis zum Schreibzugriff: Für das direkte Eintragen aus der App"
-              " heraus wird der Google Service Account benötigt. Alternativ"
-              " kannst du deine Einträge aktuell direkt in der Google-Tabelle"
-              " ergänzen, während die Ansicht in der App perfekt funktioniert!"
-          )
-      else:
-        st.warning("Bitte mindestens 'Anlage' und 'Lösung' ausfüllen.")
+  st.info(
+      "Du kannst neue Einträge direkt in deiner Google-Tabelle hinzufügen."
+      " Sie erscheinen danach sofort hier in der Ansicht!"
+  )
+  st.markdown(f"[🔗 Zur Google-Tabelle öffnen]({sheet_url})")
