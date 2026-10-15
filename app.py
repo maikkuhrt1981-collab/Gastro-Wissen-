@@ -30,7 +30,7 @@ sheet_url = "https://docs.google.com/spreadsheets/d/1L8WF_WNugzy8rTgHjBJ-aS7OG01
 csv_url = sheet_url.replace("/edit?usp=drivesdk", "/export?format=csv")
 
 # Deine Google Apps Script Web-App URL
-WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwjgugWXLSQcHH8RNzTirnpiUqYApqOS6xcIRhU2MqwH1Df2ktnlF1ZJxLR_zQmLwpk/exec"
+WEB_APP_URL = "https://script.google.com/macros/s/AKfycbxmJAJ11kb7KvESLGesaBSDfjyl2q8vh_WCeoVyvJ5PlSSksrWhuUQE67ogs6s5Radm/exec"
 
 # Tabs für Ansicht und Neuer Eintrag
 tab_lesen, tab_neu = st.tabs(["📚 Einträge anzeigen", "➕ Neuer Eintrag"])
